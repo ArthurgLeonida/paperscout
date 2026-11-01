@@ -1,0 +1,34 @@
+{
+  "name": "3D Scene Editing",
+  "field": "computer vision; generative AI; 3D reconstruction",
+  "research_question": "How can text-guided editing of 3D Gaussian splatting scenes preserve unedited regions and multi-view consistency?",
+  "project_description": "Building a text-guided 3D scene editing pipeline on top of 3D Gaussian splatting with diffusion-model guidance.",
+  "desired_outcomes": [
+    "choose a baseline editing method to build on",
+    "understand background preservation and multi-view consistency techniques",
+    "know the standard evaluation protocols and datasets for 3D editing"
+  ],
+  "keywords": [
+    "3D Gaussian splatting",
+    "scene editing",
+    "text-guided editing",
+    "diffusion models",
+    "multi-view consistency",
+    "3D reconstruction"
+  ],
+  "positive_seeds": [],
+  "negative_seeds": [],
+  "inclusion_criteria": [
+    "editing of 3D scene representations",
+    "diffusion guidance for 3D content"
+  ],
+  "exclusion_criteria": [
+    "character animation",
+    "2D-only image editing"
+  ],
+  "recency_preference": "strong",
+  "include_foundational": true,
+  "languages": ["en"],
+  "constraints": "single consumer GPU (24 GB); prefer methods with public code",
+  "weekly_reading_hours": 5
+}

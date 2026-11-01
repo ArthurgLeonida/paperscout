@@ -1,0 +1,20 @@
+{
+  "name": "Medical Segmentation",
+  "field": "medical image analysis",
+  "research_question": "Can foundation models be adapted for label-efficient segmentation of CT and MRI scans?",
+  "project_description": "Exploring parameter-efficient adaptation of segmentation foundation models to small clinical datasets.",
+  "desired_outcomes": [
+    "identify adaptation strategies that work with few labels",
+    "find public benchmarks and their evaluation metrics"
+  ],
+  "keywords": ["medical image segmentation", "foundation models", "few-shot", "CT", "MRI"],
+  "positive_seeds": [],
+  "negative_seeds": [],
+  "inclusion_criteria": ["segmentation of medical images"],
+  "exclusion_criteria": ["natural images only"],
+  "recency_preference": "moderate",
+  "include_foundational": true,
+  "languages": ["en"],
+  "constraints": "",
+  "weekly_reading_hours": 3
+}
