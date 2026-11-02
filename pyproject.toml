@@ -4,14 +4,29 @@ version = "0.1.0"
 description = "Research-paper discovery and reading-priority assistant built on the official Semantic Scholar APIs."
 readme = "README.md"
 requires-python = ">=3.11"
-license = { text = "MIT" }
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [{ name = "ArthurgLeonida" }]
+keywords = ["semantic-scholar", "research", "papers", "literature-review", "claude-code", "reading-list"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Environment :: Console",
+    "Intended Audience :: Science/Research",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Scientific/Engineering",
+]
 dependencies = [
     "httpx>=0.27,<1",
     "pydantic>=2.6,<3",
 ]
 
-[project.optional-dependencies]
-mcp = ["mcp>=1.2"]
+[project.urls]
+Repository = "https://github.com/ArthurgLeonida/ai-paper-search"
+Issues = "https://github.com/ArthurgLeonida/ai-paper-search/issues"
 
 [project.scripts]
 paperscout = "paperscout.cli:main"
@@ -22,7 +37,7 @@ dev = [
 ]
 
 [build-system]
-requires = ["hatchling>=1.24"]
+requires = ["hatchling>=1.27"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
@@ -31,3 +46,11 @@ packages = ["src/paperscout"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-q"
+
+[tool.ruff]
+target-version = "py311"
+line-length = 120
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "B"]
+ignore = ["E501", "B008", "B905"]
