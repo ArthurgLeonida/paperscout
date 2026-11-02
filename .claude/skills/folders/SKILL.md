@@ -9,6 +9,8 @@ allowed-tools: Bash(uv run -q paperscout *), Write
 
 Raw arguments: $ARGUMENTS
 
+Execution rules: run commands with the **Bash** tool, not PowerShell, because Windows PowerShell 5.1 splits quoted arguments. Run only the commands this skill specifies. If the output is unexpected, run `uv run -q paperscout doctor` once and report what it shows. Don't explore further.
+
 These are **paperscout local folders** (SQLite on this computer). Never describe them as Semantic Scholar website folders; no official API can create or modify those.
 
 ## list / show / create

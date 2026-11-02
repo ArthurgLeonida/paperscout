@@ -37,6 +37,11 @@ def test_tokenizer(raw, expected):
     assert tokenize_args(raw) == expected
 
 
+def test_powershell_pipe_bom_is_ignored():
+    p = parse_raw(SPECS["rank"], '﻿"3D Scene Editing" --unread\r\n')
+    assert p.text == "3D Scene Editing" and p.get("unread") is True
+
+
 def test_em_dash_options_are_normalized():
     p = parse_raw(SPECS["recent"], "segmentation —days 90")
     assert p.get("days") == 90 and p.text == "segmentation"
@@ -68,8 +73,8 @@ def test_double_dash_makes_rest_literal():
 
 
 def test_feedback_positionals():
-    p = parse_raw(SPECS["feedback"], '2308.04079 irrelevant "Focuses on animation, not editing."')
-    assert p.positionals == ["2308.04079", "irrelevant", "Focuses on animation, not editing."]
+    p = parse_raw(SPECS["feedback"], '0000000000000000000000000000000000000005 irrelevant "Focuses on animation, not editing."')
+    assert p.positionals == ["0000000000000000000000000000000000000005", "irrelevant", "Focuses on animation, not editing."]
 
 
 def test_choice_validation():

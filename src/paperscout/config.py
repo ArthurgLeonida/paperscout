@@ -1,7 +1,11 @@
-"""Runtime settings loaded from environment variables (and an optional .env file).
+"""Runtime settings loaded from environment variables and optional .env files.
 
 Secrets (S2_API_KEY) are held only in memory and are never logged or written
-to the database. See ``Settings.redacted()`` for the loggable view.
+to the database. ``Settings.redacted()`` is the only loggable view.
+
+.env lookup order (first value wins; real environment variables always win):
+1. ``.env`` in the current working directory
+2. ``.env`` in the paperscout project root (when running from a source checkout)
 """
 
 from __future__ import annotations
@@ -13,20 +17,53 @@ from pathlib import Path
 
 S2_GRAPH_BASE = "https://api.semanticscholar.org/graph/v1"
 S2_RECS_BASE = "https://api.semanticscholar.org/recommendations/v1"
+S2_KEY_FORM = "https://www.semanticscholar.org/product/api#api-key-form"
 
 
-def load_dotenv(path: Path) -> None:
-    """Minimal .env loader: KEY=VALUE lines; never overrides the real environment."""
+def load_dotenv(path: Path) -> list[str]:
+    """Minimal .env loader. Returns the names it set; never overrides existing variables.
+
+    Supports ``KEY=value``, ``export KEY=value``, quoted values, ``#`` comment
+    lines, trailing `` # comments`` on unquoted values, and a UTF-8 BOM
+    (as written by some Windows editors). Empty values are ignored.
+    """
     if not path.is_file():
-        return
-    for raw in path.read_text(encoding="utf-8").splitlines():
+        return []
+    loaded = []
+    for raw in path.read_text(encoding="utf-8-sig").splitlines():
         line = raw.strip()
         if not line or line.startswith("#") or "=" not in line:
             continue
         key, _, value = line.partition("=")
-        key, value = key.strip(), value.strip().strip('"').strip("'")
+        key = key.strip()
+        if key.startswith("export "):
+            key = key[len("export "):].strip()
+        value = value.strip()
+        if len(value) >= 2 and value[0] == value[-1] and value[0] in "\"'":
+            value = value[1:-1]
+        elif " #" in value:
+            value = value.split(" #", 1)[0].rstrip()
         if key and value and key not in os.environ:
             os.environ[key] = value
+            loaded.append(key)
+    return loaded
+
+
+def project_root() -> Path | None:
+    """The source checkout root when paperscout runs from one (editable install)."""
+    root = Path(__file__).resolve().parents[2]
+    pyproject = root / "pyproject.toml"
+    if pyproject.is_file() and 'name = "paperscout"' in pyproject.read_text(encoding="utf-8"):
+        return root
+    return None
+
+
+def env_candidates(cwd: Path) -> list[Path]:
+    paths = [cwd / ".env"]
+    root = project_root()
+    if root is not None and (root / ".env").resolve() != (cwd / ".env").resolve():
+        paths.append(root / ".env")
+    return paths
 
 
 def default_home() -> Path:
@@ -66,11 +103,14 @@ class Settings:
     s2_graph_base: str = S2_GRAPH_BASE
     s2_recs_base: str = S2_RECS_BASE
     s2_min_interval: float = 1.1
-    s2_max_retries: int = 4
+    s2_max_retries: int = 3
     s2_timeout: float = 30.0
     s2_max_backoff: float = 60.0
+    s2_max_requests: int = 40  # hard cap on HTTP attempts per command (retries included)
     recent_days: int = 90
     cache_ttl: CacheTTL = field(default_factory=CacheTTL)
+    key_source: str = "not set"  # "environment" | ".env: <path>" | "not set"
+    env_files_loaded: tuple[str, ...] = ()
 
     @property
     def db_path(self) -> Path:
@@ -84,14 +124,21 @@ class Settings:
     def notes_dir(self) -> Path:
         return self.home / "notes"
 
+    def _key_status(self) -> str:
+        if not self.s2_api_key:
+            return "not set"
+        return "set" if self.key_source == "not set" else f"set ({self.key_source})"
+
     def redacted(self) -> dict:
         return {
             "home": str(self.home),
-            "s2_api_key": "set" if self.s2_api_key else "not set",
+            "s2_api_key": self._key_status(),
+            "env_files_loaded": list(self.env_files_loaded),
             "s2_graph_base": self.s2_graph_base,
             "s2_recs_base": self.s2_recs_base,
             "s2_min_interval": self.s2_min_interval,
             "s2_max_retries": self.s2_max_retries,
+            "s2_max_requests": self.s2_max_requests,
             "recent_days": self.recent_days,
         }
 
@@ -100,14 +147,29 @@ class Settings:
 
 
 def load_settings(cwd: Path | None = None) -> Settings:
-    load_dotenv((cwd or Path.cwd()) / ".env")
+    cwd = cwd or Path.cwd()
+    key_in_env = bool(os.environ.get("S2_API_KEY"))
+    loaded_files, key_file = [], None
+    for path in env_candidates(cwd):
+        names = load_dotenv(path)
+        if path.is_file():
+            loaded_files.append(str(path))
+        if "S2_API_KEY" in names:
+            key_file = str(path)
+    key = os.environ.get("S2_API_KEY") or None
+    source = "environment" if key_in_env else (f".env: {key_file}" if key_file else "not set")
     home_env = os.environ.get("PAPERSCOUT_HOME")
     home = Path(home_env).expanduser().resolve() if home_env else default_home()
+    # Without a key, requests share a frequently throttled pool: fail fast instead of hammering it.
+    default_retries = 3 if key else 2
     return Settings(
         home=home,
-        s2_api_key=os.environ.get("S2_API_KEY") or None,
+        s2_api_key=key,
         s2_min_interval=_float("PAPERSCOUT_S2_MIN_INTERVAL", 1.1),
-        s2_max_retries=_int("PAPERSCOUT_S2_MAX_RETRIES", 4),
+        s2_max_retries=_int("PAPERSCOUT_S2_MAX_RETRIES", default_retries),
         s2_timeout=_float("PAPERSCOUT_S2_TIMEOUT", 30.0),
+        s2_max_requests=_int("PAPERSCOUT_S2_MAX_REQUESTS", 40),
         recent_days=_int("PAPERSCOUT_RECENT_DAYS", 90),
+        key_source=source if key else "not set",
+        env_files_loaded=tuple(loaded_files),
     )

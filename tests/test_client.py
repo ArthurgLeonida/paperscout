@@ -119,7 +119,8 @@ def test_api_key_sent_but_never_logged(settings, fake_s2, sleeps, caplog):
         client.search("gaussian")
     assert fake_s2.calls[-1].headers["x-api-key"] == secret
     assert secret not in caplog.text
-    assert "set" == replace(settings, s2_api_key=secret).redacted()["s2_api_key"]
+    redacted = replace(settings, s2_api_key=secret).redacted()
+    assert redacted["s2_api_key"] == "set" and secret not in str(redacted)
 
 
 def test_pacing_waits_between_requests(settings, fake_s2, sleeps):

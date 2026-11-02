@@ -63,6 +63,16 @@ def test_feedback_and_note_commands(svc, editing_profile):
     assert code == 0 and "## Reproduction / implementation notes" in out
 
 
+def test_add_failures_exit_nonzero(svc):
+    run(svc, "folders", "create", "Editing")
+    code, out = run(svc, "add", "https://example.com/not-a-paper", "--folder", "Editing")
+    assert code == 1 and "Not added" in out and "Unsupported paper URL host" in out
+    code, out = run(svc, "add", "Text-Guided Editing of 3D Gaussian Splatting Scenes", "--folder", "Editing")
+    assert code == 1 and pid(10) in out  # ambiguous title lists options
+    code, out = run(svc, "add", "doi:10.9999/does-not-exist", "--folder", "Editing")
+    assert code == 1 and "no record" in out
+
+
 def test_classify_ambiguous_title_lists_options(svc):
     code, out = run(svc, "classify", "Text-Guided", "Editing", "of", "3D", "Gaussian", "Splatting", "Scenes")
     assert code == 0 and "could not resolve" in out and pid(10) in out
@@ -83,3 +93,9 @@ def test_main_slash_entrypoint_reads_stdin(monkeypatch, svc, capsys):
     assert code == 2 and "Unknown option --bogus" in capsys.readouterr().out
     code = cli.main(["slash", "research-help", "--args", "rank"])
     assert code == 0 and "--unread" in capsys.readouterr().out
+
+
+def test_slash_rejects_split_arguments(capsys):
+    # What Windows PowerShell 5.1 produces for --args '"3D Scene Editing" --unread'
+    code = cli.main(["slash", "rank", "--args", "3D", "Scene", "Editing --unread"])
+    assert code == 2 and "exactly ONE string" in capsys.readouterr().out

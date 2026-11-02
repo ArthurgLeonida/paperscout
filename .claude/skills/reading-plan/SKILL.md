@@ -9,6 +9,8 @@ allowed-tools: Bash(uv run -q paperscout *)
 
 Raw arguments: $ARGUMENTS
 
+Execution rules: run commands with the **Bash** tool, not PowerShell, because Windows PowerShell 5.1 splits quoted arguments. Run only the commands this skill specifies. If the output is unexpected, run `uv run -q paperscout doctor` once and report what it shows. Don't explore further.
+
 1. Run, passing the raw arguments **unchanged**, single-quoted (escape `'` as `'\''`):
    ```
    uv run -q paperscout slash reading-plan --args '<raw arguments>'
@@ -19,4 +21,4 @@ Raw arguments: $ARGUMENTS
    - Keep the notes buffer and the open-questions buffer visible. Do not fill them with more reading.
    - Say clearly that **all durations are planning heuristics, not predictions**.
    - List papers deferred for lack of time.
-3. You may suggest a different order if the abstracts show a dependency the heuristic missed; explain why. Suggest `/note <paper> --pass first` for scaffolds and `/paper-feedback` afterwards. Do not record feedback yourself.
+3. Keep the plan's order; it is deterministic. If the abstracts show a dependency the heuristic missed, add a separate **"Claude's suggested adjustments (interpretation, not stored)"** note with the reason. Suggest `/note <paper> --pass first` for scaffolds and `/paper-feedback` afterwards. Do not record feedback yourself.

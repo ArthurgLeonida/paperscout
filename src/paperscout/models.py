@@ -395,6 +395,8 @@ class RankedPaper(BaseModel):
     per_folder: dict[str, str] = Field(default_factory=dict)  # folder name -> priority
     latest_feedback: FeedbackLabel | None = None
     seen_before: bool = False
+    # Latest stored Claude assessment, shown for reference only; never used for ordering.
+    claude_assessment: dict[str, Any] | None = None
 
 
 QUALITY_FIELDS = (

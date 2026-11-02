@@ -16,8 +16,9 @@ import sys
 from pathlib import Path
 from typing import Callable
 
-from paperscout.capabilities import CAPABILITIES, UnsupportedCapability
+from paperscout.capabilities import CAPABILITIES, UnsupportedCapability, check_rank_source, require
 from paperscout.commands import SPECS, Parsed, UsageError, parse_raw, parse_tokens, spec_for
+from paperscout.config import load_settings
 from paperscout.models import ResearchProfile
 from paperscout.reports import RankingReport, render_ranking, sanitize_untrusted, save_report, to_json
 from paperscout.s2.client import S2Error
@@ -178,14 +179,13 @@ def h_add(svc: Paperscout, p: Parsed, out: Output) -> None:
     if not folder:
         raise UsageError('add needs --folder "NAME" (folders are never inferred for writes).')
     result = svc.add_to_folder(_require_text(p, "paper"), folder, destination=p.get("to"), dry_run=p.get("dry_run"))
-    if p.get("json"):
-        out.write(to_json(result))
-        return
     status = result["status"]
     if status in ("ambiguous", "not_found"):
-        out.write(f"Not added: {result['message']}")
-        for o in result.get("options", []):
-            out.write(f"- {o['title']} ({o.get('year') or 'year unknown'}) id `{o['paper_id']}`")
+        options = "".join(f"\n- {o['title']} ({o.get('year') or 'year unknown'}) id `{o['paper_id']}`"
+                          for o in result.get("options", []))
+        raise ServiceError(f"Not added: {result['message']}{options}")
+    if p.get("json"):
+        out.write(to_json(result))
         return
     paper = result["paper"]
     if status == "preview":
@@ -366,7 +366,7 @@ def h_help(svc: Paperscout | None, p: Parsed, out: Output) -> None:
         spec = SPECS[name]
         out.write(f"- `/{spec.slash}`: {spec.summary}")
     out.write("")
-    out.write("CLI-only: `paperscout import`, `profile`, `assessment`, `capabilities`, `audit`, `eval`, `init`.")
+    out.write("CLI-only: `paperscout import`, `profile`, `assessment`, `capabilities`, `audit`, `eval`, `init`, `doctor`.")
     out.write("")
     out.write("Limitations: Semantic Scholar website folders and Research Feeds have no official API, so paperscout "
               "uses local research folders and topic- and seed-based discovery through the public API instead. "
@@ -379,13 +379,31 @@ def h_init(svc: Paperscout, p: Parsed, out: Output) -> None:
     out.write(f"Settings: {json.dumps(svc.settings.redacted())}")
 
 
+def h_doctor(svc: Paperscout | None, p: Parsed, out: Output) -> None:
+    from paperscout import doctor
+
+    settings = svc.settings if svc is not None else load_settings()
+    report = doctor.run_doctor(settings, live=p.get("live"))
+    out.write(to_json(report) if p.get("json") else doctor.render(report))
+
+
+def _precheck(name: str, p: Parsed) -> None:
+    """Refuse unsupported external operations before touching the local database."""
+    if name == "rank":
+        check_rank_source(p.get("source"))
+    elif name == "add" and p.get("to") == "zotero":
+        require("zotero.web_api.write")
+    elif name == "add" and p.get("to") == "s2-library":
+        require("s2.website_library.write")
+
+
 HANDLERS: dict[str, Callable[..., None]] = {
     "recent": h_recent, "discover": h_discover, "rank": h_rank, "folders": h_folders, "classify": h_classify,
     "add": h_add, "remove": h_remove, "assess": h_assess, "plan": h_plan, "feedback": h_feedback, "note": h_note,
     "import": h_import, "profile": h_profile, "assessment": h_assessment, "capabilities": h_capabilities,
-    "audit": h_audit, "eval": h_eval, "help": h_help, "init": h_init,
+    "audit": h_audit, "eval": h_eval, "help": h_help, "init": h_init, "doctor": h_doctor,
 }
-NO_SERVICE = {"help", "capabilities"}
+NO_SERVICE = {"help", "capabilities", "doctor"}
 
 
 def run(command: str, parsed_or_tokens: Parsed | list[str], svc: Paperscout | None = None) -> tuple[int, str]:
@@ -395,6 +413,7 @@ def run(command: str, parsed_or_tokens: Parsed | list[str], svc: Paperscout | No
     try:
         spec = spec_for(command)
         parsed = parsed_or_tokens if isinstance(parsed_or_tokens, Parsed) else parse_tokens(spec, parsed_or_tokens)
+        _precheck(spec.name, parsed)
         if svc is None and spec.name not in NO_SERVICE:
             svc = Paperscout.open()
             own_service = True
@@ -433,7 +452,17 @@ def main(argv: list[str] | None = None) -> int:
             sys.stderr.write("Usage: paperscout slash <command> [--args \"raw text\"]  (or raw text on stdin)\n")
             return EXIT_USAGE
         name = argv[1]
-        raw = argv[3] if len(argv) >= 4 and argv[2] == "--args" else ("" if sys.stdin.isatty() else sys.stdin.read())
+        extra = argv[2:]
+        if extra and (extra[0] != "--args" or len(extra) != 2):
+            # Windows PowerShell 5.1 splits a quoted string containing double quotes into several
+            # arguments; never silently drop the rest.
+            sys.stdout.write(
+                "Usage error: pass the raw slash arguments as exactly ONE string after --args, or on stdin. "
+                f"Received {len(extra)} separate argument(s). In Windows PowerShell, pipe them instead: "
+                "'\"3D Scene Editing\" --unread' | uv run -q paperscout slash rank\n"
+            )
+            return EXIT_USAGE
+        raw = extra[1] if extra else ("" if sys.stdin.isatty() else sys.stdin.read())
         try:
             parsed = parse_raw(spec_for(name), raw)
         except UsageError as exc:

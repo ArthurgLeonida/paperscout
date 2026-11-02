@@ -2,6 +2,16 @@
 
 The goal is to answer *which papers should I read for this goal, why, in what order, and at what depth?* It doesn't claim to find objectively "best" papers.
 
+## What determines the order
+
+| Component | Affects the stored order? | Role |
+|---|---|---|
+| Deterministic Python heuristic (`heuristic-v1`) | **Yes, it is the only thing that does** | Computes dimensions, priority, and the ordering score |
+| Claude's interpretation in a slash command | No | Explains results from the evidence. Any disagreement goes in a separately labelled "Claude's suggested adjustments (interpretation, not stored)" section |
+| Stored Claude assessments (`paperscout assessment record`) | No | Validated and kept append-only with model and prompt version; shown next to the paper ("reference only, not used for ordering") |
+
+They aren't combined. Output must not be described as "AI-ranked". Whether stored Claude judgments should ever influence ordering is an open design question to settle with evaluation data (see `evaluation.md`).
+
 ## Separate dimensions (each reported on its own)
 
 | Dimension | How it is computed (heuristic-v1) | Unknown when |

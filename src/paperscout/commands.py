@@ -83,7 +83,7 @@ def _find_close(text: str, start: int, close: str) -> int:
 def tokenize_args(raw: str) -> list[str]:
     """Shell-like splitting that tolerates apostrophes (e.g. "Kirchhoff's law")."""
     tokens: list[str] = []
-    text = raw.strip()
+    text = raw.replace("﻿", "").strip()  # Windows PowerShell pipes may prepend a UTF-8 BOM
     i, n = 0, len(text)
     while i < n:
         if text[i].isspace():
@@ -311,9 +311,9 @@ SPECS: dict[str, CommandSpec] = {
             "feedback", "paper-feedback", "Record feedback on a paper (append-only).",
             'feedback <paper> <label> ["optional reason"]',
             (PROFILE, FOLDER, JSON),
-            ("/paper-feedback 2308.04079 relevant",
-             '/paper-feedback 2308.04079 irrelevant "Focuses on animation, not editing."',
-             "/paper-feedback 2308.04079 understood"),
+            ("/paper-feedback <paper-id> relevant",
+             '/paper-feedback <paper-id> irrelevant "Focuses on animation, not editing."',
+             "/paper-feedback <paper-id> understood"),
             ("Labels: relevant, irrelevant, already_known, read_later, read_overview, understood, deep_study, "
              "implemented, not_useful.", "Named /paper-feedback because /feedback is a built-in Claude Code command.",
              "A paper given as a title must be quoted."),
@@ -348,6 +348,11 @@ SPECS: dict[str, CommandSpec] = {
                     "eval template --run RUN_ID --out labels.json | eval run --labels labels.json [--k 5]",
                     (Opt("--run", "str", "run ID to label"), Opt("--out", "str", "output path"),
                      Opt("--labels", "str", "labels JSON"), Opt("--k", "int", "cut-off", minimum=1, maximum=50, default=5),
+                     JSON)),
+        CommandSpec("doctor", "doctor",
+                    "Check setup: data location, stored data, API-key presence (value never shown), .env loading.",
+                    "doctor [--live]",
+                    (Opt("--live", "flag", "send ONE Semantic Scholar request (no retries) and show sanitized diagnostics"),
                      JSON)),
         CommandSpec("help", "research-help", "Show commands, examples, defaults, and limitations.",
                     "help [command]", ()),

@@ -465,6 +465,21 @@ class Store:
             )
         return cursor.lastrowid
 
+    def latest_claude_assessments(self, paper_ids: Iterable[str]) -> dict[str, dict[str, Any]]:
+        ids = list(paper_ids)
+        if not ids:
+            return {}
+        placeholders = ",".join("?" * len(ids))
+        rows = self.conn.execute(
+            f"SELECT * FROM assessments WHERE paper_id IN ({placeholders}) AND assessor LIKE 'claude:%' ORDER BY id",
+            ids,
+        ).fetchall()
+        latest: dict[str, dict[str, Any]] = {}
+        for row in rows:
+            latest[row["paper_id"]] = {**json.loads(row["data_json"]), "stored_at": row["created_at"],
+                                       "assessor": row["assessor"]}
+        return latest
+
     def assessments_for(self, paper_id: str) -> list[dict[str, Any]]:
         rows = self.conn.execute(
             "SELECT * FROM assessments WHERE paper_id = ? ORDER BY id", (paper_id,)

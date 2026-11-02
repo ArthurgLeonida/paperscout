@@ -9,6 +9,8 @@ allowed-tools: Bash(uv run -q paperscout *)
 
 Raw arguments: $ARGUMENTS
 
+Execution rules: run commands with the **Bash** tool, not PowerShell, because Windows PowerShell 5.1 splits quoted arguments. Run only the commands this skill specifies. If the output is unexpected, run `uv run -q paperscout doctor` once and report what it shows. Don't explore further.
+
 1. Run, passing the raw arguments **unchanged**, single-quoted (escape `'` as `'\''`):
    ```
    uv run -q paperscout slash add --args '<raw arguments>'

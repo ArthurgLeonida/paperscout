@@ -20,7 +20,7 @@ from typing import Any, Callable, Iterable
 
 import httpx
 
-from paperscout.config import Settings
+from paperscout.config import S2_KEY_FORM, Settings
 from paperscout.models import Paper
 
 log = logging.getLogger("paperscout.s2")
@@ -53,6 +53,10 @@ class S2BadRequest(S2Error):
 
 class S2RateLimited(S2Error):
     pass
+
+
+class S2BudgetExceeded(S2Error):
+    """The per-command request budget is spent; nothing further is sent."""
 
 
 def search_query_text(text: str) -> str:
@@ -106,6 +110,8 @@ class SemanticScholarClient:
         self.network_calls = 0
         self.cache_hits = 0
         self.sources_used: list[str] = []
+        # Sanitized per-attempt diagnostics: never headers we send, never the key.
+        self.diagnostics: list[dict[str, Any]] = []
 
     def close(self) -> None:
         self._http.close()
@@ -145,23 +151,43 @@ class SemanticScholarClient:
                 return json.loads(cached)
 
         attempts = self.settings.s2_max_retries + 1
+        endpoint = httpx.URL(url).path
         last_error: S2Error | None = None
+        waited = 0.0
+        made = 0
         for attempt in range(attempts):
+            if self.network_calls >= self.settings.s2_max_requests:
+                raise S2BudgetExceeded(
+                    f"Request budget of {self.settings.s2_max_requests} HTTP attempts for this command is spent "
+                    f"(PAPERSCOUT_S2_MAX_REQUESTS); stopped before {method} {endpoint}. Nothing further was sent."
+                )
             self._pace()
             self._last_request = self._monotonic()
             self.network_calls += 1
+            made += 1
             try:
                 response = self._http.request(method, url, params=params, json=body)
             except httpx.TransportError as exc:
                 last_error = S2Error(f"network error contacting Semantic Scholar: {type(exc).__name__}")
+                self.diagnostics.append({"method": method, "endpoint": endpoint, "status": None,
+                                         "error_type": type(exc).__name__})
                 delay = self._backoff(attempt, None)
-                log.warning("transport error on %s (attempt %d/%d); retrying in %.1fs", url, attempt + 1, attempts, delay)
+                log.warning("transport error on %s (attempt %d/%d); retrying in %.1fs", endpoint, attempt + 1, attempts, delay)
                 if attempt + 1 < attempts:
                     self._sleep(delay)
+                    waited += delay
                 continue
 
             status = response.status_code
-            log.info("%s %s -> %d (attempt %d)", method, url, status, attempt + 1)
+            self.diagnostics.append({
+                "method": method,
+                "endpoint": endpoint,
+                "status": status,
+                "error_type": response.headers.get("x-amzn-ErrorType"),
+                "retry_after": response.headers.get("Retry-After"),
+                "request_id": response.headers.get("x-amzn-RequestId"),
+            })
+            log.info("%s %s -> %d (attempt %d)", method, endpoint, status, attempt + 1)
             if status == 200:
                 data = response.json()
                 if self.cache is not None and ttl:
@@ -186,19 +212,32 @@ class SemanticScholarClient:
                     )
                 delay = self._backoff(attempt, retry_after)
                 if attempt + 1 < attempts:
-                    log.warning("HTTP %d on %s; retrying in %.1fs", status, url, delay)
+                    log.warning("HTTP %d on %s; retrying in %.1fs", status, endpoint, delay)
                     self._sleep(delay)
+                    waited += delay
                 continue
             raise S2Error(self._error_message(response), status)
 
         assert last_error is not None
         if isinstance(last_error, S2RateLimited):
-            raise S2RateLimited(
-                f"Rate limited by Semantic Scholar after {attempts} attempts. "
-                "Unauthenticated requests share a public pool; wait a minute or set S2_API_KEY.",
-                429,
-            )
+            raise S2RateLimited(self._rate_limit_message(method, endpoint, made, waited), 429)
         raise last_error
+
+    def _rate_limit_message(self, method: str, endpoint: str, made: int, waited: float) -> str:
+        last = self.diagnostics[-1] if self.diagnostics else {}
+        retry_after = last.get("retry_after") or "absent"
+        error_type = last.get("error_type") or "not given"
+        if self.settings.s2_api_key:
+            key_line = ("API key: configured (sent as x-api-key; documented introductory limit 1 request/second). "
+                        "Wait and retry; if this persists, check the key's status with Semantic Scholar.")
+        else:
+            key_line = ("API key: not configured. Unauthenticated requests share one public pool that is often "
+                        f"throttled. Request a key at {S2_KEY_FORM} and set S2_API_KEY in .env.")
+        return (
+            f"Rate limited by Semantic Scholar: HTTP 429 (error type: {error_type}) on {method} {endpoint}; "
+            f"{made} attempt(s) over {waited:.0f}s of backoff; Retry-After: {retry_after}; "
+            f"last request id: {last.get('request_id') or 'n/a'}. {key_line} Nothing further was sent."
+        )
 
     def _backoff(self, attempt: int, retry_after: float | None) -> float:
         if retry_after is not None:

@@ -351,6 +351,7 @@ class Paperscout:
         feedback = self.store.latest_feedback(ids, profile_id)
         assessments = self.scorer.assess(candidates, ctx, feedback)
         folders = self.store.folders_for_papers(ids)
+        claude = self.store.latest_claude_assessments(ids)
         ranked = [
             RankedPaper(
                 paper=c.paper,
@@ -358,6 +359,7 @@ class Paperscout:
                 assessment=a,
                 folders=folders.get(c.paper.paper_id, []),
                 latest_feedback=feedback[c.paper.paper_id].label if c.paper.paper_id in feedback else None,
+                claude_assessment=claude.get(c.paper.paper_id),
             )
             for c, a in zip(candidates, assessments)
         ]
@@ -521,6 +523,9 @@ class Paperscout:
         balanced: bool,
     ) -> RankingReport:
         notices: list[str] = []
+        if not self.settings.s2_api_key:
+            notices.append("No S2_API_KEY configured: requests used Semantic Scholar's shared unauthenticated pool, "
+                           "which is often throttled.")
         folder = self.get_folder(folder_ref) if folder_ref else None
         profile, explicit = self.resolve_profile(profile_name)
         if folder and folder.profile_id and not profile_name:
