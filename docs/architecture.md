@@ -1,22 +1,28 @@
 # Architecture
 
 ```
+ CLAUDE.md (tracked rules) + CLAUDE.local.md ──@imports──► profile/*.md   (private background, built by /setup)
+        │  loaded into every Claude Code session
+        ▼
  /recent, /rank, …  (Claude Code skills: .claude/skills/<name>/SKILL.md, workflow instructions only)
         │  uv run -q paperscout slash <command> --args '<raw $ARGUMENTS>'
         ▼
  paperscout.cli ──► paperscout.commands (one grammar: tokenizer, options, validation)
-        │
+        │                                     profile/profile.json ──profile sync──► active profile in SQLite
         ▼
- paperscout.service.Paperscout  ◄── also used by planning, taxonomy, evaluation (and the Phase-2 MCP server)
+ paperscout.service.Paperscout  ◄── also used by planning, taxonomy, evaluation
    ├── identifiers   DOI / arXiv / S2 / CorpusId / PMID / ACL / URL / title normalisation
    ├── s2.client     official Graph + Recommendations APIs: pacing, retries, Retry-After, cache, batching
    ├── dedup         paperId → DOI → arXiv → CorpusId → title+year; provenance merged
-   ├── ranking       transparent heuristic scorer + versioned TOML config
+   ├── ranking       transparent heuristic scorer + versioned TOML config (knowledge map adjusts depth)
+   ├── background    profile/ status, placeholder checks (used by profile sync and doctor)
    ├── store         SQLite + migrations: profiles, folders, papers, snapshots, feedback, runs, assessments, audit, cache
    └── reports       Markdown/JSON; untrusted paper text is fenced and labelled
 ```
 
 Every interface goes through the same service layer, so retrieval, ranking and storage exist exactly once. Skills contain no business logic. They pass the raw arguments to the CLI and tell Claude how to present the output honestly.
+
+The researcher's background has two layers (see `background.md`). The prose files in `profile/` give Claude the context to interpret results; they're imported through the git-ignored `CLAUDE.local.md`. `profile.json` is the machine-readable part, which the deterministic ranking uses after `paperscout profile sync`. `/setup` writes both and keeps them consistent.
 
 ## Claude authentication strategy
 
@@ -36,7 +42,7 @@ A Claude subscription doesn't include Anthropic API credits. If unattended batch
 |---|---|
 | Retrieval query, time, API source, rank | `runs` + `run_candidates.provenance` (JSON list per paper) |
 | Metadata snapshot used | `paper_snapshots` (content-hashed, append-only), referenced by `run_candidates.snapshot_id` |
-| Ranking config version | `runs.ranking_version` (for example `heuristic-v1`); each assessment carries `method` |
+| Ranking config version | `runs.ranking_version` (for example `heuristic-v2`); each assessment carries `method` |
 | Evidence level | in each stored assessment (`metadata`, `tldr`, `abstract`, `full_text`) |
 | Model and prompt version | `assessments.assessor` (`claude:<model>`) + `prompt_version` (each skill declares one, for example `assess-v1`) |
 | User feedback | `feedback` (append-only event log; latest applicable event wins, history is kept) |

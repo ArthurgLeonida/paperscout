@@ -49,9 +49,10 @@ paperscout never presents a local folder operation as a Semantic Scholar website
 
 | Capability | Status | paperscout |
 |---|---|---|
-| Project skills `.claude/skills/<name>/SKILL.md` as slash commands, `$ARGUMENTS` (raw string), `allowed-tools` | supported (code.claude.com/docs/en/skills) | **yes**: 11 skills |
-| Built-in command collisions | `/plan` and `/feedback` are built-in (code.claude.com/docs/en/commands) | uses `/reading-plan` and `/paper-feedback` |
-| MCP server (`.mcp.json`, stdio) | supported (code.claude.com/docs/en/mcp) | planned (Phase 2) |
+| Project skills `.claude/skills/<name>/SKILL.md` as slash commands, `$ARGUMENTS` (raw string), `allowed-tools` | supported (code.claude.com/docs/en/skills) | **yes**: 12 skills, including `/setup` |
+| Built-in command collisions | `/plan`, `/feedback`, `/reset` (alias of `/clear`) and `/background` are built-in; `/setup` is not (code.claude.com/docs/en/commands) | uses `/reading-plan`, `/paper-feedback`, `/setup` |
+| Personal memory `CLAUDE.local.md` with `@imports` | supported; loaded at session start, relative imports resolve from the importing file (code.claude.com/docs/en/memory). Behaviour for missing import targets is undocumented | `/setup` creates it only alongside the files it imports |
+| MCP server (`.mcp.json`, stdio) | supported (code.claude.com/docs/en/mcp) | not planned until it adds a capability the slash commands lack |
 | Programmatic Anthropic API | supported, but billed separately from a Claude subscription | **not used**; see `architecture.md` → Claude authentication |
 
 ## Sources

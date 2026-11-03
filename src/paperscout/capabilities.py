@@ -126,8 +126,16 @@ CAPABILITIES: dict[str, Capability] = {
             "-",
         ),
         Capability(
+            "claude.memory", "Private research background loaded every session via CLAUDE.local.md @imports",
+            "supported", "read", "none (local files)", "yes", "https://code.claude.com/docs/en/memory",
+            "behaviour for missing import targets is undocumented, so /setup creates CLAUDE.local.md only "
+            "together with the profile/ files it imports",
+            "-",
+        ),
+        Capability(
             "claude.mcp", "MCP server exposing paperscout tools", "supported", "n/a", "your Claude Code login",
-            "planned:phase-2", "https://code.claude.com/docs/en/mcp", "project servers need one-time approval",
+            "no", "https://code.claude.com/docs/en/mcp",
+            "not planned until it adds a user-visible capability the slash commands lack",
             "Skills call the CLI directly.",
         ),
         Capability(
@@ -153,7 +161,6 @@ class UnsupportedCapability(RuntimeError):
             f"not implemented in paperscout yet ({cap.implemented})"
         )
         super().__init__(f"{cap.description}: {status}. {cap.limitations}. Alternative: {cap.fallback}")
-        self.capability = cap
 
 
 def require(key: str) -> Capability:

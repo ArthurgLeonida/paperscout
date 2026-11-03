@@ -18,8 +18,7 @@ from typing import Callable
 
 from paperscout.capabilities import CAPABILITIES, UnsupportedCapability, check_rank_source, require
 from paperscout.commands import SPECS, Parsed, UsageError, parse_raw, parse_tokens, spec_for
-from paperscout.config import load_settings
-from paperscout.models import ResearchProfile
+from paperscout.config import load_settings, profile_dir
 from paperscout.reports import RankingReport, render_ranking, sanitize_untrusted, save_report, to_json
 from paperscout.s2.client import S2Error
 from paperscout.service import Paperscout, ServiceError
@@ -247,7 +246,8 @@ def h_note(svc: Paperscout, p: Parsed, out: Output) -> None:
 def h_import(svc: Paperscout, p: Parsed, out: Output) -> None:
     if not p.get("folder"):
         raise UsageError('import needs --folder "NAME"')
-    result = svc.import_file(Path(_require_text(p, "file path")), p.get("folder"), dry_run=p.get("dry_run"))
+    result = svc.import_file(Path(_require_text(p, "file path")), p.get("folder"), dry_run=p.get("dry_run"),
+                             mark=p.get("mark"))
     out.write(to_json(result))
 
 
@@ -258,8 +258,8 @@ def h_profile(svc: Paperscout, p: Parsed, out: Output) -> None:
         active = svc.store.active_profile()
         profiles = svc.store.list_profiles()
         if not profiles:
-            out.write("No profiles yet. Create one: `paperscout profile template > my.json`, edit it, then "
-                      "`paperscout profile create --file my.json --activate`.")
+            out.write("No profiles yet. Run /setup in Claude Code to build your research background, "
+                      "then `paperscout profile sync`.")
         for prof in profiles:
             mark = " (active)" if active and prof.id == active.id else ""
             out.write(f"- **{prof.name}**{mark} `{prof.id}`: {prof.research_question or prof.field}")
@@ -274,17 +274,11 @@ def h_profile(svc: Paperscout, p: Parsed, out: Output) -> None:
         prof = svc.store.set_active_profile(rest or _require_text(p, "profile name"))
         out.write(f"Active profile: {prof.name}")
         return
-    if action == "create":
-        path = p.get("file")
-        if not path:
-            raise UsageError("profile create needs --file profile.json")
-        data = json.loads(Path(path).read_text(encoding="utf-8"))
-        prof = svc.save_profile(ResearchProfile.model_validate(data), activate=p.get("activate"))
-        out.write(f"Saved profile {prof.name} (`{prof.id}`).")
-        return
-    if action == "template":
-        out.write(ResearchProfile(name="My Project").model_dump_json(
-            indent=2, exclude={"id", "created_at", "updated_at"}))
+    if action == "sync":
+        path = Path(p.get("file")) if p.get("file") else profile_dir() / "profile.json"
+        prof = svc.sync_profile(path)
+        knowledge = f", {len(prof.knowledge)} knowledge-map topics" if prof.knowledge else ""
+        out.write(f"Synced {path} into profile {prof.name} (`{prof.id}`){knowledge}; it is now the active profile.")
         return
     raise UsageError(f"Unknown profile action {action!r}. Usage: {SPECS['profile'].usage}")
 
@@ -317,6 +311,18 @@ def h_capabilities(svc: Paperscout | None, p: Parsed, out: Output) -> None:
     out.write("|---|---|---|---|---|")
     for c in CAPABILITIES.values():
         out.write(f"| {c.description} | {c.provider_status} | {c.access} | {c.implemented} | {c.fallback} |")
+
+
+def h_feedback_log(svc: Paperscout, p: Parsed, out: Output) -> None:
+    entries = svc.store.feedback_log(p.get("limit"))
+    if p.get("json"):
+        out.write(to_json(entries))
+        return
+    if not entries:
+        out.write("No feedback recorded yet.")
+    for e in entries:
+        reason = f": {e['reason']}" if e["reason"] else ""
+        out.write(f"- {e['at'][:10]} **{e['label']}** {sanitize_untrusted(e['title'] or e['paper_id'])}{reason}")
 
 
 def h_audit(svc: Paperscout, p: Parsed, out: Output) -> None:
@@ -365,8 +371,9 @@ def h_help(svc: Paperscout | None, p: Parsed, out: Output) -> None:
     for name in slash_order:
         spec = SPECS[name]
         out.write(f"- `/{spec.slash}`: {spec.summary}")
+    out.write("- `/setup`: build or update your private research background (profile/); a Claude Code skill only")
     out.write("")
-    out.write("CLI-only: `paperscout import`, `profile`, `assessment`, `capabilities`, `audit`, `eval`, `init`, `doctor`.")
+    out.write("CLI-only: `paperscout import`, `profile`, `assessment`, `capabilities`, `audit`, `feedback-log`, `eval`, `init`, `doctor`.")
     out.write("")
     out.write("Limitations: Semantic Scholar website folders and Research Feeds have no official API, so paperscout "
               "uses local research folders and topic- and seed-based discovery through the public API instead. "
@@ -401,7 +408,7 @@ HANDLERS: dict[str, Callable[..., None]] = {
     "recent": h_recent, "discover": h_discover, "rank": h_rank, "folders": h_folders, "classify": h_classify,
     "add": h_add, "remove": h_remove, "assess": h_assess, "plan": h_plan, "feedback": h_feedback, "note": h_note,
     "import": h_import, "profile": h_profile, "assessment": h_assessment, "capabilities": h_capabilities,
-    "audit": h_audit, "eval": h_eval, "help": h_help, "init": h_init, "doctor": h_doctor,
+    "audit": h_audit, "feedback-log": h_feedback_log, "eval": h_eval, "help": h_help, "init": h_init, "doctor": h_doctor,
 }
 NO_SERVICE = {"help", "capabilities", "doctor"}
 

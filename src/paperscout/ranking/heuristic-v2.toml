@@ -1,8 +1,12 @@
 # Transparent, versioned heuristic ranking configuration.
 # Scores are ordering heuristics, NOT probabilities or quality measures.
-# Change the version string whenever weights or thresholds change so stored
-# runs remain interpretable.
-version = "heuristic-v1"
+# Change the version string whenever weights, thresholds or rules change so
+# stored runs remain interpretable.
+#
+# v2: the researcher's knowledge map (profile.json "knowledge") adjusts the
+# recommended reading DEPTH of foundational/prerequisite/survey papers.
+# Priority and ordering are unchanged from v1.
+version = "heuristic-v2"
 
 [weights]
 # Missing (unknown) components are dropped and the remaining weights renormalised;

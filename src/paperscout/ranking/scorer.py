@@ -24,12 +24,14 @@ from paperscout.models import (
     EvidenceLevel,
     FeedbackEvent,
     HeuristicAssessment,
+    KnowledgeLevel,
     Paper,
     Priority,
     ReadingDepth,
     ReadingRole,
     RecencyPreference,
     ResearchProfile,
+    TopicKnowledge,
 )
 from paperscout.ranking.text import (
     TfidfSpace,
@@ -41,10 +43,11 @@ from paperscout.ranking.text import (
     tokenize,
 )
 
-DEFAULT_CONFIG = "heuristic-v1"
+DEFAULT_CONFIG = "heuristic-v2"
 
 _SURVEY = re.compile(r"\b(survey|review|overview|tutorial|primer|state of the art)\b", re.IGNORECASE)
 _BENCH = re.compile(r"\b(benchmark|dataset|challenge|leaderboard)\b", re.IGNORECASE)
+BACKGROUND_ROLES = (ReadingRole.foundational, ReadingRole.prerequisite, ReadingRole.survey)
 
 
 @dataclass(frozen=True)
@@ -139,6 +142,7 @@ class HeuristicScorer:
             goal_vec = space.vector(tokenize(expand_synonyms(profile.goal_text(), self.synonyms)))
             keyword_phrases = phrase_terms(profile.keywords + profile.inclusion_criteria)
         exclusion_phrases = [(c, toks) for c in ctx.exclusion_criteria for toks in [tokenize(c)] if toks]
+        knowledge = self._knowledge_variants(profile) if profile else []
 
         results = []
         for cand, tokens in zip(candidates, doc_tokens):
@@ -174,6 +178,7 @@ class HeuristicScorer:
                 if fb.label.negative:
                     priority = Priority.skip
             depth = self._depth(priority, role, topic, useful, seed)
+            depth, background_note = self._knowledge_adjustment(depth, role, priority, token_set, knowledge)
             effort = self._effort(depth, role)
 
             evidence = paper.evidence_level
@@ -203,6 +208,7 @@ class HeuristicScorer:
                     matched_terms=matched,
                     exclusion_hits=exclusion_hits,
                     feedback_note=feedback_note,
+                    background_note=background_note,
                     uncertainties=uncertainties,
                     next_action=self._next_action(paper, priority, depth, role, fb),
                 )
@@ -324,6 +330,44 @@ class HeuristicScorer:
         if paper.abstract:
             return ReadingRole.method, "default role for a non-survey research paper"
         return ReadingRole.unknown, "insufficient metadata to infer a role"
+
+    def _knowledge_variants(self, profile: ResearchProfile) -> list[tuple[TopicKnowledge, list[list[str]]]]:
+        """Each knowledge-map topic with the token lists that count as a mention (topic or its synonyms)."""
+        out = []
+        for item in profile.knowledge:
+            phrases = [item.topic, *self.synonyms.get(item.topic.lower(), [])]
+            variants = [toks for toks in (tokenize(p) for p in phrases) if toks]
+            if variants:
+                out.append((item, variants))
+        return out
+
+    def _knowledge_adjustment(self, depth, role, priority, token_set, knowledge) -> tuple[ReadingDepth, str | None]:
+        """Adjust reading depth (never priority) for what the researcher already knows."""
+        if depth is ReadingDepth.skip or not knowledge:
+            return depth, None
+        matched = [item for item, variants in knowledge if any(all(t in token_set for t in v) for v in variants)]
+        if not matched:
+            return depth, None
+        expert = [f"'{k.topic}'" for k in matched if k.level is KnowledgeLevel.expert]
+        new = [f"'{k.topic}'" for k in matched if k.level is KnowledgeLevel.new]
+        if role in BACKGROUND_ROLES:
+            if expert and depth in (ReadingDepth.substantive, ReadingDepth.deep):
+                return ReadingDepth.overview, (
+                    f"Depth reduced to overview: your knowledge map marks you as expert in {', '.join(expert)}, "
+                    f"so this {role.value} paper is likely review material."
+                )
+            if new and depth is ReadingDepth.overview and priority in (Priority.p1, Priority.p2):
+                return ReadingDepth.substantive, (
+                    f"Depth raised to substantive: your knowledge map marks {', '.join(new)} as new to you, "
+                    f"so this {role.value} paper is worth a proper read."
+                )
+            return depth, None
+        if new:
+            return depth, (
+                f"Builds on {', '.join(new)}, which your knowledge map marks as new: "
+                "consider reading its prerequisites first (/discover can surface them)."
+            )
+        return depth, None
 
     def _depth(self, priority, role, topic, useful, seed) -> ReadingDepth:
         if priority is Priority.skip:

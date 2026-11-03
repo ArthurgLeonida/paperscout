@@ -16,6 +16,7 @@ from typing import Any, Iterable
 
 import httpx
 
+from paperscout.background import PLACEHOLDER, file_hash
 from paperscout.capabilities import check_rank_source, require
 from paperscout.config import Settings, load_settings
 from paperscout.dedup import deduplicate
@@ -60,7 +61,6 @@ class Resolution:
     paper: Paper | None = None
     options: list[Paper] = field(default_factory=list)
     message: str = ""
-    from_local: bool = False
 
 
 def _title_similarity(a: str, b: str) -> float:
@@ -94,6 +94,7 @@ class Paperscout:
 
     def close(self) -> None:
         self.client.close()
+        self.store.cache_purge_expired()
         self.store.conn.close()
 
     # ================================================================== profiles
@@ -101,6 +102,23 @@ class Paperscout:
         saved = self.store.save_profile(profile)
         if activate or self.store.active_profile() is None:
             self.store.set_active_profile(saved.id)
+        return saved
+
+    def sync_profile(self, path: Path) -> ResearchProfile:
+        """Load profile/profile.json (written by /setup) into the database and activate it."""
+        if not path.is_file():
+            raise ServiceError(f"{path} not found. Run /setup in Claude Code to create your research background.")
+        text = path.read_text(encoding="utf-8")
+        leftovers = sorted(set(PLACEHOLDER.findall(text)))
+        if leftovers:
+            raise ServiceError(f"{path} still contains template placeholders ({', '.join(leftovers[:5])}). "
+                               "Fill them in (or run /setup) before syncing.")
+        try:
+            profile = ResearchProfile.model_validate_json(text)
+        except ValueError as exc:
+            raise ServiceError(f"{path} is not a valid profile: {exc}") from None
+        saved = self.save_profile(profile, activate=True)
+        self.store.set_setting(f"profile_sync:{saved.id}", file_hash(text))
         return saved
 
     def resolve_profile(self, name: str | None) -> tuple[ResearchProfile | None, bool]:
@@ -198,7 +216,7 @@ class Paperscout:
             if prefer_local:
                 local = self._local_lookup(ref)
                 if local is not None:
-                    return Resolution("resolved", ref, local, from_local=True)
+                    return Resolution("resolved", ref, local)
             try:
                 paper = self.client.get_paper(ref.s2_id)
             except S2NotFound:
@@ -284,7 +302,7 @@ class Paperscout:
         if profile is None:
             notices.append(
                 "No research profile is active, so project usefulness is unknown and ranking is by topic only. "
-                "Create one with `paperscout profile create --file <profile.json>`."
+                "Run /setup in Claude Code to build your research background."
             )
             return False, "topic-only (no profile)"
         overlap = self.scorer.topic_overlap_with_profile(criteria_text, profile)
@@ -929,10 +947,27 @@ class Paperscout:
                          "removed" if removed else "not present", target)
         return {"status": "removed" if removed else "unchanged", **target}
 
-    def import_file(self, path: Path, folder_ref: str, *, dry_run: bool = False, max_titles: int = 40) -> dict[str, Any]:
+    def import_file(
+        self,
+        path: Path,
+        folder_ref: str,
+        *,
+        dry_run: bool = False,
+        mark: str | None = None,
+        max_titles: int = 40,
+    ) -> dict[str, Any]:
+        """Import a BibTeX/RIS/ID-list file into a local folder.
+
+        ``mark`` records a feedback label (e.g. ``already_known`` for a reading-history
+        export) on every resolved paper, so discovery stops recommending them.
+        """
         folder = self.get_folder(folder_ref)
         if not path.is_file():
             raise ServiceError(f"File not found: {path}")
+        try:
+            label = parse_feedback_label(mark) if mark else None
+        except ValueError as exc:
+            raise ServiceError(str(exc)) from None
         fmt, entries = read_entries(path)
         id_entries = [e for e in entries if e.ref and not e.ref.is_title]
         title_entries = [e for e in entries if e.ref and e.ref.is_title]
@@ -957,7 +992,9 @@ class Paperscout:
         if len(title_entries) > max_titles:
             problems.append({"entry": f"{len(title_entries) - max_titles} more title-only entries",
                              "problem": f"skipped (max {max_titles} title lookups per import to respect rate limits)"})
-        added, unchanged = [], []
+        added, unchanged, marked = [], [], 0
+        profile = self.store.active_profile()
+        latest = self.store.latest_feedback([p.paper_id for _, p in resolved], profile.id if profile else None)
         for _entry, paper in resolved:
             self.store.upsert_paper(paper, f"import:{fmt}")
             if dry_run:
@@ -966,8 +1003,16 @@ class Paperscout:
                 added.append(paper.title)
             else:
                 unchanged.append(paper.title)
+            previous = latest.get(paper.paper_id)
+            if label and (previous is None or previous.label is not label):  # idempotent re-imports
+                self.store.add_feedback(FeedbackEvent(
+                    paper_id=paper.paper_id, label=label, reason=f"imported from {path.name}",
+                    profile_id=profile.id if profile else None, folder_id=folder.id,
+                ))
+                marked += 1
         self.store.audit("folder.import", "local", folder.id, dry_run, "previewed" if dry_run else "imported",
-                         {"file": str(path), "format": fmt, "resolved": len(resolved), "problems": len(problems)})
+                         {"file": str(path), "format": fmt, "resolved": len(resolved), "problems": len(problems),
+                          "mark": label.value if label else None})
         return {
             "destination": f'local paperscout folder "{folder.name}" ({folder.id})',
             "format": fmt,
@@ -975,6 +1020,7 @@ class Paperscout:
             "resolved": [p.title for _, p in resolved],
             "added": added,
             "already_present": unchanged,
+            "marked": {"label": label.value, "papers": marked} if label else None,
             "problems": problems,
             "dry_run": dry_run,
         }

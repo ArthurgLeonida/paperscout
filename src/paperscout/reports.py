@@ -138,6 +138,8 @@ def render_item(index: int, item: RankedPaper, verbose: bool = False) -> list[st
         lines.append(f"- Seed affinity: **{a.seed_affinity.band.value}** — {a.seed_affinity.basis}")
     lines.append(f"- Recency: **{a.recency.band.value}** — {a.recency.basis}")
     lines.append(f"- Role basis: {a.role_basis}")
+    if a.background_note:
+        lines.append(f"- Your background: {a.background_note}")
     if verbose:
         score = "unknown" if a.heuristic_score is None else f"{a.heuristic_score:.2f}"
         lines.append(f"- Ordering score: {score} (heuristic for ordering only, not a probability or quality score)")

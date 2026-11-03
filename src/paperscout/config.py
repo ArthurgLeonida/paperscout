@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import os
 import sys
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass, field
 from pathlib import Path
 
 S2_GRAPH_BASE = "https://api.semanticscholar.org/graph/v1"
@@ -64,6 +64,15 @@ def env_candidates(cwd: Path) -> list[Path]:
     if root is not None and (root / ".env").resolve() != (cwd / ".env").resolve():
         paths.append(root / ".env")
     return paths
+
+
+def profile_dir(cwd: Path | None = None) -> Path:
+    """Where /setup keeps the private research background (git-ignored ``profile/``)."""
+    local = (cwd or Path.cwd()) / "profile"
+    root = project_root()
+    if not local.is_dir() and root is not None:
+        return root / "profile"
+    return local
 
 
 def default_home() -> Path:
@@ -141,9 +150,6 @@ class Settings:
             "s2_max_requests": self.s2_max_requests,
             "recent_days": self.recent_days,
         }
-
-    def with_home(self, home: Path) -> "Settings":
-        return replace(self, home=home)
 
 
 def load_settings(cwd: Path | None = None) -> Settings:

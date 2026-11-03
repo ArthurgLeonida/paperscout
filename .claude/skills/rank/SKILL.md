@@ -11,6 +11,8 @@ Raw arguments: $ARGUMENTS
 
 Execution rules: run commands with the **Bash** tool, not PowerShell, because Windows PowerShell 5.1 splits quoted arguments. Run only the commands this skill specifies. If the output is unexpected, run `uv run -q paperscout doctor` once and report what it shows. Don't explore further.
 
+Personalisation: use the researcher's background (profile/*.md, loaded through CLAUDE.local.md). Explain matches against their goals and knowledge map. Flag prerequisites they lack and papers on topics they already know, and respect their reading style. The CLI's "Your background" lines are the deterministic depth adjustments. If no background is in context, say the results aren't personalised and suggest `/setup`.
+
 ## 1. Run the tested CLI
 
 Pass the raw arguments **unchanged**, single-quoted (escape `'` as `'\''`):

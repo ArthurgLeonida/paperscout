@@ -6,7 +6,7 @@ The goal is to answer *which papers should I read for this goal, why, in what or
 
 | Component | Affects the stored order? | Role |
 |---|---|---|
-| Deterministic Python heuristic (`heuristic-v1`) | **Yes, it is the only thing that does** | Computes dimensions, priority, and the ordering score |
+| Deterministic Python heuristic (`heuristic-v2`) | **Yes, it is the only thing that does** | Computes dimensions, priority, and the ordering score |
 | Claude's interpretation in a slash command | No | Explains results from the evidence. Any disagreement goes in a separately labelled "Claude's suggested adjustments (interpretation, not stored)" section |
 | Stored Claude assessments (`paperscout assessment record`) | No | Validated and kept append-only with model and prompt version; shown next to the paper ("reference only, not used for ordering") |
 
@@ -14,7 +14,7 @@ They aren't combined. Output must not be described as "AI-ranked". Whether store
 
 ## Separate dimensions (each reported on its own)
 
-| Dimension | How it is computed (heuristic-v1) | Unknown when |
+| Dimension | How it is computed (heuristic-v2) | Unknown when |
 |---|---|---|
 | Topic relevance | Share of distinct topic terms found in title and abstract (title and bigram phrases weighted); TF-IDF similarity for long criteria texts | no topic or criteria |
 | Project usefulness | Profile keyword and criteria hits + TF-IDF similarity to research question, project description and desired outcomes | no profile, or topic differs materially from the active profile |
@@ -25,7 +25,7 @@ They aren't combined. Output must not be described as "AI-ranked". Whether store
 | Confidence | Low for metadata/TLDR evidence; never "high" from lexical heuristics alone | — |
 | Reading effort | Range per depth (overview 20–40 min, substantive 1.5–2.5 h, deep 4–7 h; surveys 40–75 min). **Planning heuristics, not predictions.** | — |
 
-The **ordering score** combines the known dimensions with configurable weights (`src/paperscout/ranking/heuristic-v1.toml`). Unknown dimensions are **dropped and the weights renormalised** rather than counted as zero, and the uncertainty is listed. The score is shown only with `--verbose`, labelled *"heuristic for ordering only, not a probability or quality score"*. Users see bands (high, medium, low, unknown) and priorities (P1, P2, P3, skip).
+The **ordering score** combines the known dimensions with configurable weights (`src/paperscout/ranking/heuristic-v2.toml`). Unknown dimensions are **dropped and the weights renormalised** rather than counted as zero, and the uncertainty is listed. The score is shown only with `--verbose`, labelled *"heuristic for ordering only, not a probability or quality score"*. Users see bands (high, medium, low, unknown) and priorities (P1, P2, P3, skip).
 
 ## Deliberate non-signals
 
@@ -36,6 +36,19 @@ The **ordering score** combines the known dimensions with configurable weights (
 ## Abstract-level limits
 
 From metadata and abstracts, paperscout and the skills make no judgments about experimental fairness, correctness of derivations, reproducibility, code availability (unless independently verified), or state-of-the-art superiority. `ClaudeAssessment` enforces this when Claude's assessments are stored: those fields must be `unknown` unless the evidence level is `full_text` with a recorded document version.
+
+## Your background: knowledge map (heuristic-v2)
+
+`profile.json` carries the knowledge map from `profile/01-researcher-background.md`. A topic counts as mentioned when all of its words, or the words of a configured synonym, appear in the title or abstract.
+
+| Level | Paper role | Effect |
+|---|---|---|
+| `expert` | foundational, prerequisite, survey | substantive/deep → **overview** ("likely review material") |
+| `new` | foundational, prerequisite, survey (P1/P2 only) | overview → **substantive** ("worth a proper read") |
+| `new` | method, recent method | note: read its prerequisites first |
+| `working`, `familiar` | any | no change |
+
+Only **depth** (and therefore the planning-time estimate) changes. Priority, the ordering score and the order are identical to v1. Each adjustment appears as a "Your background" line. With no profile, or when a topic differs from the profile (topic-only mode), the knowledge map isn't applied.
 
 ## Feedback in ranking
 
@@ -51,4 +64,4 @@ For an ad-hoc topic, paperscout measures the share of topic terms that appear in
 
 ## Changing the configuration
 
-Copy `heuristic-v1.toml`, change the weights or thresholds, **bump `version`**, and load it with `load_ranking_config(path=…)`. Stored runs record which version produced them. Don't claim a configuration is better until it's been evaluated (see `evaluation.md`).
+Copy `heuristic-v2.toml`, change the weights or thresholds, **bump `version`**, and load it with `load_ranking_config(path=…)`. Stored runs record which version produced them. Don't claim a configuration is better until it's been evaluated (see `evaluation.md`).

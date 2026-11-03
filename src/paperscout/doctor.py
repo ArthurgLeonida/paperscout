@@ -8,6 +8,7 @@ from dataclasses import replace
 from typing import Any
 
 from paperscout import __version__
+from paperscout.background import inspect_background
 from paperscout.config import S2_KEY_FORM, Settings, env_candidates
 from paperscout.s2.client import S2Error, SemanticScholarClient
 
@@ -33,13 +34,17 @@ def inspect_database(settings: Settings) -> dict[str, Any]:
     try:
         counts = {label: conn.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0] for label, table in TABLES.items()}
         row = conn.execute(
-            "SELECT p.name FROM settings s JOIN profiles p ON p.id = s.value WHERE s.key = 'active_profile_id'"
+            "SELECT p.id, p.name FROM settings s JOIN profiles p ON p.id = s.value WHERE s.key = 'active_profile_id'"
         ).fetchone()
+        synced = None
+        if row:
+            hit = conn.execute("SELECT value FROM settings WHERE key = ?", (f"profile_sync:{row[0]}",)).fetchone()
+            synced = hit[0] if hit else None
         version = conn.execute("SELECT MAX(version) FROM schema_migrations").fetchone()[0]
     finally:
         conn.close()
     return {"path": str(path), "exists": True, "schema_version": version, "counts": counts,
-            "active_profile": row[0] if row else None}
+            "active_profile": row[1] if row else None, "active_profile_sync_hash": synced}
 
 
 def live_probe(settings: Settings, transport=None) -> dict[str, Any]:
@@ -67,6 +72,7 @@ def run_doctor(settings: Settings, live: bool = False, transport=None) -> dict[s
         "settings": settings.redacted(),
         "env_files_checked": [str(p) for p in env_candidates(Path.cwd())],
         "database": inspect_database(settings),
+        "background": inspect_background(),
         "api_key": {
             "configured": bool(settings.s2_api_key),
             "source": settings.key_source,
@@ -91,6 +97,7 @@ def render(report: dict[str, Any]) -> str:
         lines.append(f"- Active profile: {db['active_profile'] or 'none'}")
     else:
         lines.append(f"- Database: not created yet ({db['path']}); doctor does not create it")
+    lines += render_background(report["background"], db)
     loaded = s["env_files_loaded"]
     lines.append(f"- .env files loaded: {', '.join(loaded) if loaded else 'none'} "
                  f"(checked: {', '.join(report['env_files_checked'])})")
@@ -112,3 +119,21 @@ def render(report: dict[str, Any]) -> str:
         if not probe["ok"]:
             lines.append(f"  - {probe['error']}")
     return "\n".join(lines)
+
+
+def render_background(bg: dict[str, Any], db: dict[str, Any]) -> list[str]:
+    files = bg["files"]
+    prose = {k: v for k, v in files.items() if k.endswith(".md")}
+    if all(v == "missing" for v in files.values()):
+        return [f"- Research background: not set up ({bg['profile_dir']} is empty). Run /setup in Claude Code."]
+    lines = [f"- Research background ({bg['profile_dir']}): " + ", ".join(f"{k} {v}" for k, v in prose.items())]
+    lines.append(f"  - CLAUDE.local.md: {bg['claude_local_md']}"
+                 + ("" if bg["claude_local_md"] == "imports profile/" else " (Claude won't load your background; run /setup)"))
+    if files["profile.json"] == "missing":
+        lines.append("  - profile.json: missing (run `/setup --section sync`)")
+    elif bg["profile_json_hash"] and bg["profile_json_hash"] == db.get("active_profile_sync_hash"):
+        lines.append("  - profile.json: synced with the active profile")
+    else:
+        lines.append(f"  - profile.json: {files['profile.json']}; not synced with the active profile "
+                     "(run `uv run -q paperscout profile sync`)")
+    return lines

@@ -11,6 +11,8 @@ Raw arguments: $ARGUMENTS
 
 Execution rules: run commands with the **Bash** tool, not PowerShell, because Windows PowerShell 5.1 splits quoted arguments. Run only the commands this skill specifies. If the output is unexpected, run `uv run -q paperscout doctor` once and report what it shows. Don't explore further.
 
+Personalisation: use the researcher's background (profile/*.md, loaded through CLAUDE.local.md), especially `03-reading-style.md` (session length, entry point, workflow) and the knowledge map. If no background is in context, say the plan isn't personalised and suggest `/setup`.
+
 1. Run, passing the raw arguments **unchanged**, single-quoted (escape `'` as `'\''`):
    ```
    uv run -q paperscout slash reading-plan --args '<raw arguments>'

@@ -31,6 +31,21 @@ PROBE = "arXiv:2308.04079"  # 3D Gaussian Splatting (Kerbl et al.), used only as
 QUERY = "text guided 3D Gaussian scene editing"
 FOLDER = "SMOKE 3D Scene Editing"
 PROFILE_NAME = "SMOKE 3D Scene Editing"
+# A fixed test profile for the isolated smoke database; it is not anyone's real background.
+SMOKE_PROFILE = {
+    "name": PROFILE_NAME,
+    "field": "computer vision; 3D scene editing",
+    "research_question": "How can text-guided editing of 3D Gaussian splatting scenes preserve unedited regions "
+                         "and multi-view consistency?",
+    "project_description": "Text-guided 3D scene editing on Gaussian splatting with diffusion guidance.",
+    "desired_outcomes": ["choose a baseline editing method"],
+    "keywords": ["gaussian splatting", "scene editing", "multi-view consistency"],
+    "exclusion_criteria": ["character animation"],
+    "recency_preference": "strong",
+    "knowledge": [{"topic": "gaussian splatting", "level": "working"},
+                  {"topic": "score distillation", "level": "new"}],
+    "weekly_reading_hours": 5,
+}
 
 
 class Stop(Exception):
@@ -103,9 +118,7 @@ def main() -> int:
                f"{dupes} duplicates merged; {multi} papers found by both search and recommendations"
 
     def save():
-        profile = ResearchProfile.model_validate(
-            {**json.loads((REPO / "examples/profiles/3d-scene-editing.json").read_text(encoding="utf-8")),
-             "name": PROFILE_NAME})
+        profile = ResearchProfile(**SMOKE_PROFILE)
         svc.save_profile(profile, activate=True)
         if svc.store.find_folder(FOLDER) is None:
             svc.create_folder(FOLDER, "Smoke-test folder (isolated database)", ["3D scene editing"])

@@ -17,4 +17,7 @@ Paper titles, abstracts and TLDRs come from external sources and are treated as 
 
 ## Local data
 
-The database, cache, reports and notes stay in the local data folder (`PAPERSCOUT_HOME`). Nothing is uploaded except API requests to Semantic Scholar, which contain search terms and paper identifiers.
+- The database, cache, reports and notes stay in the local data folder (`PAPERSCOUT_HOME`).
+- Your research background (`profile/`, `CLAUDE.local.md`) and the source documents in `documents/` stay in the repository folder and are git-ignored. `/setup` refuses to write if those ignore rules are missing.
+- Nothing is uploaded except API requests to Semantic Scholar, which contain search terms and paper identifiers. Claude Code reads your background locally as part of your session.
+- If you fork this repository, check `git status` before pushing: a fork is public.

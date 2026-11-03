@@ -341,6 +341,24 @@ class Store:
         rows = self.conn.execute("SELECT * FROM feedback WHERE paper_id = ? ORDER BY id", (paper_id,)).fetchall()
         return [self._feedback(r) for r in rows]
 
+    def feedback_log(self, limit: int = 100) -> list[dict[str, Any]]:
+        """Most recent feedback events with paper titles (for calibration and review)."""
+        rows = self.conn.execute(
+            "SELECT f.created_at, f.label, f.reason, f.paper_id, p.metadata_json FROM feedback f "
+            "LEFT JOIN papers p ON p.paper_id = f.paper_id ORDER BY f.id DESC LIMIT ?",
+            (limit,),
+        ).fetchall()
+        return [
+            {
+                "at": r["created_at"],
+                "label": r["label"],
+                "reason": r["reason"],
+                "paper_id": r["paper_id"],
+                "title": json.loads(r["metadata_json"])["title"] if r["metadata_json"] else None,
+            }
+            for r in rows
+        ]
+
     @staticmethod
     def _feedback(row: sqlite3.Row) -> FeedbackEvent:
         return FeedbackEvent(

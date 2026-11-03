@@ -74,7 +74,7 @@ def assess(cands, topic="text guided gaussian splatting scene editing", **ctx_kw
 
 
 def test_config_is_versioned():
-    assert CONFIG.version == "heuristic-v1"
+    assert CONFIG.version == "heuristic-v2"
 
 
 def test_missing_abstract_is_metadata_evidence_with_low_confidence():

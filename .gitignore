@@ -12,6 +12,17 @@ proposals/
 *.sqlite3
 *.db
 
+# Personal research background (built by /setup; templates/ holds the tracked templates)
+/profile/
+/CLAUDE.local.md
+
+# documents/: only the README and folder skeleton are tracked; your files are not
+documents/*
+!documents/README.md
+!documents/*/
+documents/*/*
+!documents/*/.gitkeep
+
 # Python
 __pycache__/
 *.py[cod]

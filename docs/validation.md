@@ -20,7 +20,10 @@ Last updated **2026-11-02**. "Live" means against the real Semantic Scholar API.
 | Skill registration | — | — | — | all 11 listed by Claude Code 2.1.314 |
 | VS Code extension `/` menu | — | — | — | **not verified** (see below) |
 | Ranking quality vs. baselines | harness only | metric code only | **not evaluated**: needs your labels | — |
-| Fresh clone (committable files only), Windows | — | 140 tests pass on Python 3.11.9 and 3.13.7; lint passes | — | — |
+| Research background: profile sync, placeholder guard, knowledge-map depth, `import --mark`, `doctor` status | yes | yes (19 tests in `test_background.py`) | — | — |
+| `CLAUDE.local.md` loads `profile/*.md` at session start | — | — | — | **pass**: with every file tool disabled, headless Claude Code quoted a synthetic marker from `profile/01-researcher-background.md` (isolated scratch copy) |
+| `/setup` skill | yes | — | — | registered (12 skills); **the full onboarding conversation is not verified**, because it needs your documents and answers |
+| Fresh clone (committable files only), Windows | — | 159 tests pass on Python 3.11.9 and 3.13.7; lint passes; no personal files included | — | — |
 | Package build (wheel/sdist) | — | wheel contains the SQL migration, ranking config and LICENSE; sdist contains no data or secrets | — | — |
 | CI on Linux (GitHub Actions) | workflow added | — | **not verified** until the first run on GitHub | — |
 
@@ -36,6 +39,8 @@ Last updated **2026-11-02**. "Live" means against the real Semantic Scholar API.
 ## When your API key arrives (runbook)
 
 All live runs use isolated databases. Your real library isn't touched unless you say so.
+
+0. Run `/setup` first (it works without a key, except for the optional reading-history import), so the live results are ranked against your real background.
 
 1. `uv run -q paperscout doctor`: should show `S2_API_KEY: configured (.env: …)`.
 2. `uv run -q paperscout doctor --live`: one request; expect HTTP 200.

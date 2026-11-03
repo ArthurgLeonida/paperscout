@@ -15,7 +15,7 @@ import json
 import logging
 import random
 import time
-from datetime import datetime, timezone
+from datetime import timezone
 from typing import Any, Callable, Iterable
 
 import httpx
@@ -351,14 +351,6 @@ class SemanticScholarClient:
         ]
 
     # ------------------------------------------------------------------ recommendations
-    def recommend_for_paper(self, paper_id: str, *, limit: int = 20, pool: str = "recent") -> list[Paper]:
-        data = self.request(
-            "GET", self._recs(f"/papers/forpaper/{paper_id}"),
-            params={"fields": SEARCH_FIELDS, "limit": min(limit, 500), "from": pool},
-            ttl=self.settings.cache_ttl.recommendations, source="s2.recommendations",
-        )
-        return [Paper.from_s2(p) for p in data.get("recommendedPapers") or [] if p.get("paperId")]
-
     def recommend(self, positive: list[str], negative: list[str] | None = None, *, limit: int = 20) -> list[Paper]:
         data = self.request(
             "POST", self._recs("/papers/"),
@@ -368,6 +360,3 @@ class SemanticScholarClient:
         )
         return [Paper.from_s2(p) for p in data.get("recommendedPapers") or [] if p.get("paperId")]
 
-
-def utc_stamp() -> str:
-    return datetime.now(timezone.utc).isoformat(timespec="seconds")

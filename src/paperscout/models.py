@@ -256,7 +256,36 @@ class RecencyPreference(str, Enum):
     none = "none"
 
 
+class KnowledgeLevel(str, Enum):
+    expert = "expert"  # could teach it: background papers are review material
+    working = "working"  # uses it regularly
+    familiar = "familiar"  # knows the idea, not the details
+    new = "new"  # not studied yet: background papers deserve a proper read
+
+
+class TopicKnowledge(BaseModel):
+    """One row of the researcher's knowledge map (profile/01-researcher-background.md)."""
+
+    topic: str
+    level: KnowledgeLevel
+    evidence: str = ""
+
+    @field_validator("topic")
+    @classmethod
+    def _topic(cls, value: str) -> str:
+        value = " ".join(value.split())
+        if not value:
+            raise ValueError("knowledge topic must not be empty")
+        return value
+
+
 class ResearchProfile(BaseModel):
+    """Machine-readable part of the researcher background (profile/profile.json).
+
+    The prose background in profile/*.md is read by Claude; this model holds
+    only what the deterministic ranking uses.
+    """
+
     id: str = ""
     name: str
     field: str = ""
@@ -270,8 +299,7 @@ class ResearchProfile(BaseModel):
     exclusion_criteria: list[str] = Field(default_factory=list)
     recency_preference: RecencyPreference = RecencyPreference.moderate
     include_foundational: bool = True
-    languages: list[str] = Field(default_factory=lambda: ["en"])
-    constraints: str = ""
+    knowledge: list[TopicKnowledge] = Field(default_factory=list)
     weekly_reading_hours: float | None = None
     created_at: datetime | None = None
     updated_at: datetime | None = None
@@ -367,7 +395,7 @@ class Component(BaseModel):
 
 
 class HeuristicAssessment(BaseModel):
-    method: str  # ranking config version, e.g. heuristic-v1
+    method: str  # ranking config version, e.g. heuristic-v2
     topic_relevance: Component
     project_usefulness: Component
     seed_affinity: Component
@@ -383,6 +411,7 @@ class HeuristicAssessment(BaseModel):
     matched_terms: list[str] = Field(default_factory=list)
     exclusion_hits: list[str] = Field(default_factory=list)
     feedback_note: str | None = None
+    background_note: str | None = None  # depth adjusted for the researcher's knowledge map
     uncertainties: list[str] = Field(default_factory=list)
     next_action: str = ""
 
