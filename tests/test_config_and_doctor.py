@@ -6,7 +6,8 @@ import pytest
 
 from paperscout import cli, doctor
 from paperscout.config import load_dotenv, load_settings
-from paperscout.s2.client import S2BudgetExceeded, S2RateLimited, SemanticScholarClient
+from paperscout.http import ApiBudgetExceeded, ApiRateLimited
+from paperscout.s2.client import SemanticScholarClient
 
 from .conftest import pid
 
@@ -85,7 +86,7 @@ def test_request_budget_is_a_hard_cap(settings, sleeps):
     handler = lambda request: httpx.Response(429, json={"message": "Too Many Requests"})  # noqa: E731
     client = SemanticScholarClient(replace(settings, s2_max_retries=10, s2_max_requests=3),
                                    transport=httpx.MockTransport(handler), sleep=sleeps.append)
-    with pytest.raises(S2BudgetExceeded, match="budget of 3"):
+    with pytest.raises(ApiBudgetExceeded, match="budget of 3"):
         client.search("anything")
     assert client.network_calls == 3
 
@@ -97,7 +98,7 @@ def test_rate_limit_message_has_sanitized_diagnostics(settings, sleeps):
 
     client = SemanticScholarClient(replace(settings, s2_max_retries=1), transport=httpx.MockTransport(handler),
                                    sleep=sleeps.append)
-    with pytest.raises(S2RateLimited) as info:
+    with pytest.raises(ApiRateLimited) as info:
         client.search("gaussian")
     message = str(info.value)
     for fragment in ("HTTP 429", "TooManyRequestsException", "/graph/v1/paper/search", "2 attempt(s)",
@@ -105,7 +106,7 @@ def test_rate_limit_message_has_sanitized_diagnostics(settings, sleeps):
         assert fragment in message
     keyed = SemanticScholarClient(replace(settings, s2_max_retries=0, s2_api_key=FAKE_KEY),
                                   transport=httpx.MockTransport(handler), sleep=sleeps.append)
-    with pytest.raises(S2RateLimited) as info:
+    with pytest.raises(ApiRateLimited) as info:
         keyed.search("gaussian")
     assert "API key: configured" in str(info.value) and FAKE_KEY not in str(info.value)
 

@@ -224,6 +224,8 @@ SEED = Opt("--seed", "multi", "seed paper identifier for recommendations (repeat
 SOURCE = Opt("--source", "choice", "where the papers come from", choices=("local", "zotero", "s2-library", "s2-feed"),
              default="local")
 DRY_RUN = Opt("--dry-run", "flag", "preview only; change nothing")
+PROVIDER = Opt("--provider", "choice", "paper source for this command (default: PAPERSCOUT_PROVIDER, auto)",
+               choices=("arxiv", "semantic-scholar", "s2"))
 
 SPECS: dict[str, CommandSpec] = {
     s.name: s
@@ -234,7 +236,7 @@ SPECS: dict[str, CommandSpec] = {
             "[--limit N] [--include-read] [--seed ID]...",
             (Opt("--days", "int", "window length in days (default 90, configurable)", minimum=1, maximum=3650),
              Opt("--since", "date", "window start (YYYY-MM-DD)"), Opt("--until", "date", "window end (default today)"),
-             FOLDER, PROFILE, LIMIT_RECENT, INCLUDE_READ, SEED, VERBOSE, JSON),
+             FOLDER, PROFILE, LIMIT_RECENT, INCLUDE_READ, SEED, PROVIDER, VERBOSE, JSON),
             ("/recent text-guided 3D Gaussian scene editing", "/recent medical image segmentation --days 90",
              '/recent diffusion models --folder "Diffusion Models" --limit 10'),
             ("'Recent' uses Semantic Scholar's publicationDate (often arXiv v1), never the indexing date.",
@@ -243,7 +245,7 @@ SPECS: dict[str, CommandSpec] = {
         CommandSpec(
             "discover", "discover", "Discover useful papers (foundational, recent, surveys) without a date limit.",
             "discover <topic-or-question> [--folder NAME] [--profile NAME] [--limit N] [--include-read] [--seed ID]...",
-            (FOLDER, PROFILE, LIMIT_DISCOVER, INCLUDE_READ, SEED, VERBOSE, JSON),
+            (FOLDER, PROFILE, LIMIT_DISCOVER, INCLUDE_READ, SEED, PROVIDER, VERBOSE, JSON),
             ("/discover background preservation in 3D scene editing", '/discover --folder "3D Reconstruction"'),
             ("Fetches the reference lists of the top results to surface shared prerequisites.",),
         ),
@@ -278,7 +280,7 @@ SPECS: dict[str, CommandSpec] = {
         CommandSpec(
             "classify", "classify", "Suggest which local folders a paper belongs in (recommendation only).",
             "classify <DOI | arXiv id/URL | S2 id/URL | title> [--profile NAME] [--suggest-only]",
-            (PROFILE, Opt("--suggest-only", "flag", "explicitly request suggestions only (the default)"), JSON),
+            (PROFILE, Opt("--suggest-only", "flag", "explicitly request suggestions only (the default)"), PROVIDER, JSON),
             ("/classify 10.1145/3592433", "/classify https://arxiv.org/abs/2308.04079",
              "/classify 3D Gaussian Splatting for Real-Time Radiance Field Rendering"),
         ),
@@ -286,7 +288,7 @@ SPECS: dict[str, CommandSpec] = {
             "add", "add", "Add a paper to a local folder (explicit, previewable).",
             'add <paper> --folder "NAME" [--to local] [--dry-run]',
             (FOLDER, Opt("--to", "choice", "destination", choices=("local", "zotero", "s2-library"), default="local"),
-             DRY_RUN, JSON),
+             DRY_RUN, PROVIDER, JSON),
             ('/add https://arxiv.org/abs/2308.04079 --folder "3D Scene Editing"',),
         ),
         CommandSpec(
@@ -296,7 +298,7 @@ SPECS: dict[str, CommandSpec] = {
         CommandSpec(
             "assess", "assess", "Focused relevance and reading-priority assessment of one paper.",
             "assess <paper> [--profile NAME] [--topic TEXT]",
-            (PROFILE, Opt("--topic", "str", "judge against this topic instead of the profile"), VERBOSE, JSON),
+            (PROFILE, Opt("--topic", "str", "judge against this topic instead of the profile"), PROVIDER, VERBOSE, JSON),
             ("/assess https://arxiv.org/abs/2308.04079", '/assess 2308.04079 --profile "Current Project"'),
         ),
         CommandSpec(
@@ -329,7 +331,7 @@ SPECS: dict[str, CommandSpec] = {
             "import", "import", "Import papers from a BibTeX, RIS, or identifier-list file into a local folder.",
             'import <file> --folder "NAME" [--mark LABEL] [--dry-run]',
             (FOLDER, Opt("--mark", "str", "record this feedback label on every imported paper, e.g. already_known"),
-             DRY_RUN, JSON),
+             DRY_RUN, PROVIDER, JSON),
             ('import library-export.bib --folder "3D Reconstruction"',
              'import documents/reading-history/zotero.bib --folder "Reading history" --mark already_known'),
         ),

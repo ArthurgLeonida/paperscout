@@ -65,6 +65,18 @@ CAPABILITIES: dict[str, Capability] = {
             "limit <= 500; pools 'recent' (default) and 'all-cs'", "-",
         ),
         Capability(
+            "arxiv.search", "arXiv keyword search with category and submission-date filters (export.arxiv.org/api/query)",
+            "supported", "read", "none", "yes", "https://info.arxiv.org/help/api/user-manual.html",
+            "max 1 request every 3 s on one connection (terms of use); keyword relevance only; arXiv preprints only; "
+            "no citation counts, references or recommendations",
+            "Semantic Scholar with an API key for graph features",
+        ),
+        Capability(
+            "arxiv.lookup", "arXiv ID lookup (id_list), also used for titles via ti: search", "supported", "read",
+            "none", "yes", "https://info.arxiv.org/help/api/user-manual.html",
+            "DOIs and non-arXiv papers cannot be looked up on arXiv", "Look up by title, or use Semantic Scholar",
+        ),
+        Capability(
             "s2.website_library.read", "Read your Semantic Scholar website Library folders", "unsupported",
             "read", "n/a", "no", "https://api.semanticscholar.org/api-docs/",
             "no official endpoint in the Graph, Recommendations or Datasets APIs",

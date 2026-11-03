@@ -1,4 +1,7 @@
-"""Budgeted live end-to-end smoke test against the real Semantic Scholar API.
+"""Budgeted live end-to-end smoke test against the active paper provider.
+
+The provider follows PAPERSCOUT_PROVIDER (auto: Semantic Scholar with a key,
+otherwise arXiv); override with --provider arxiv|semantic-scholar.
 
 Runs in an ISOLATED data home (default: <repo>/data/smoke, git-ignored) and
 refuses to use your normal paperscout data home. Stops at the first
@@ -6,6 +9,7 @@ rate-limit/budget failure instead of retrying further.
 
     uv run -q python scripts/live_smoke.py            # default budget: 15 HTTP attempts
     uv run -q python scripts/live_smoke.py --budget 10
+    uv run -q python scripts/live_smoke.py --provider arxiv
 
 Writes only to the isolated database. The "assessment" saved in step 9 is a
 clearly labelled mechanical test record, not a real judgment of the paper.
@@ -23,7 +27,7 @@ from paperscout.config import default_home, load_settings
 from paperscout.dedup import deduplicate
 from paperscout.models import Candidate, Provenance, ResearchProfile
 from paperscout.planning import build_plan
-from paperscout.s2.client import S2BudgetExceeded, S2Error, S2RateLimited
+from paperscout.http import ApiBudgetExceeded, ApiError, ApiRateLimited
 from paperscout.service import Paperscout, ServiceError
 
 REPO = Path(__file__).resolve().parents[1]
@@ -56,6 +60,8 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--home", type=Path, default=REPO / "data" / "smoke")
     parser.add_argument("--budget", type=int, default=15, help="max HTTP attempts for the whole run")
+    parser.add_argument("--provider", choices=("arxiv", "semantic-scholar"), default=None,
+                        help="override PAPERSCOUT_PROVIDER for this run")
     args = parser.parse_args()
     for stream in (sys.stdout, sys.stderr):
         stream.reconfigure(encoding="utf-8", errors="replace")
@@ -65,10 +71,14 @@ def main() -> int:
         print("Refusing to run against your normal data home. Use an isolated --home.")
         return 2
     base = load_settings(REPO)
-    settings = replace(base, home=home, s2_max_requests=args.budget, s2_max_retries=1, s2_min_interval=1.2)
+    settings = replace(base, home=home, s2_max_requests=args.budget, s2_max_retries=1, s2_min_interval=1.2,
+                       arxiv_max_requests=args.budget, arxiv_max_retries=1,
+                       provider=args.provider or base.provider)
+    provider = settings.effective_provider
     print(f"Isolated home: {home}")
-    print(f"API key: {'configured (' + base.key_source + ')' if base.s2_api_key else 'not configured'}; "
-          f"budget {args.budget} HTTP attempts; 1 retry per request\n")
+    print(f"Provider: {provider}; S2 API key: "
+          f"{'configured (' + base.key_source + ')' if base.s2_api_key else 'not configured'}; "
+          f"budget {args.budget} HTTP attempts per provider; 1 retry per request\n")
 
     results: list[dict] = []
     svc = Paperscout.open(settings)
@@ -77,13 +87,14 @@ def main() -> int:
     def step(name: str, fn):
         try:
             detail = fn()
-            results.append({"step": name, "status": "PASS", "detail": detail})
-            print(f"PASS  {name}: {detail}")
-        except (S2RateLimited, S2BudgetExceeded) as exc:
+            status = "SKIP" if isinstance(detail, str) and detail.startswith("skipped:") else "PASS"
+            results.append({"step": name, "status": status, "detail": detail})
+            print(f"{status:<5} {name}: {detail}")
+        except (ApiRateLimited, ApiBudgetExceeded) as exc:
             results.append({"step": name, "status": "FAIL", "detail": str(exc)})
             print(f"FAIL  {name}: {exc}")
             raise Stop from None
-        except (S2Error, ServiceError, AssertionError) as exc:
+        except (ApiError, ServiceError, AssertionError) as exc:
             results.append({"step": name, "status": "FAIL", "detail": str(exc)})
             print(f"FAIL  {name}: {exc}")
 
@@ -92,17 +103,20 @@ def main() -> int:
         assert res.status == "resolved" and res.paper, res.message
         state["seed"] = res.paper
         p = res.paper
-        return f"{p.title} ({p.publication_date or p.year}); S2 {p.paper_id}; evidence {p.evidence_level.value}"
+        return f"{p.title} ({p.publication_date or p.year}); id {p.paper_id}; evidence {p.evidence_level.value}"
 
     def search():
-        hits = svc.client.search_papers(QUERY, max_results=20)
+        hits = svc.search_sample(QUERY, max_results=20)
         assert hits, "search returned no papers"
-        state["search"] = [Candidate(paper=p, provenance=[Provenance(source="s2.search", query=QUERY, rank=r)])
+        source = "arxiv.search" if svc.uses_arxiv else "s2.search"
+        state["search"] = [Candidate(paper=p, provenance=[Provenance(source=source, query=QUERY, rank=r)])
                            for r, p in hits]
         with_abs = sum(1 for c in state["search"] if c.paper.abstract)
         return f"{len(hits)} papers ({with_abs} with abstracts); top: {hits[0][1].title}"
 
     def recommend():
+        if svc.uses_arxiv:
+            return "skipped: arXiv has no recommendations (Semantic Scholar only)"
         assert "seed" in state, "needs the lookup step"
         recs = svc.client.recommend([state["seed"].paper_id], limit=10)
         state["recs"] = [Candidate(paper=p, provenance=[Provenance(source="s2.recommendations",
@@ -176,8 +190,9 @@ def main() -> int:
         print("\nStopped early to respect rate limits; remaining steps were not run.")
     finally:
         try:
-            calls, hits = svc.client.network_calls, svc.client.cache_hits
-            diagnostics = svc.client.diagnostics
+            stats = svc.api_stats()
+            calls, hits = stats["api_calls"], stats["cache_hits"]
+            diagnostics = svc.client.diagnostics + svc.arxiv.diagnostics
             svc.close()
         except Exception:
             calls, hits, diagnostics = "n/a", "n/a", []
@@ -185,7 +200,7 @@ def main() -> int:
     print(f"\nHTTP attempts: {calls}; cache hits: {hits}; statuses: {statuses}")
     (home / "smoke-summary.json").write_text(json.dumps({"results": results, "diagnostics": diagnostics},
                                                          indent=2, default=str), encoding="utf-8")
-    return 0 if results and all(r["status"] == "PASS" for r in results) and len(results) == 9 else 1
+    return 0 if len(results) == 9 and all(r["status"] in ("PASS", "SKIP") for r in results) else 1
 
 
 if __name__ == "__main__":

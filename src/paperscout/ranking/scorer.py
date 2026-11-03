@@ -413,7 +413,10 @@ class HeuristicScorer:
         if useful.value is None and ctx.profile is not None and not ctx.use_profile:
             notes.append("Project usefulness not judged: the topic differs from the active profile.")
         recent = paper.published_on() and (ctx.today - paper.published_on()).days < 365
-        if recent and (paper.citation_count or 0) < 10:
+        if paper.citation_count is None:
+            if not recent and role is not ReadingRole.survey:
+                notes.append("Citation count unknown (the source provides none), so foundational status was not inferred.")
+        elif recent and paper.citation_count < 10:
             notes.append("Few citations is expected for a recent paper and was not penalised.")
         return notes
 

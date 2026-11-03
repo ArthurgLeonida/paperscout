@@ -300,6 +300,7 @@ class ResearchProfile(BaseModel):
     recency_preference: RecencyPreference = RecencyPreference.moderate
     include_foundational: bool = True
     knowledge: list[TopicKnowledge] = Field(default_factory=list)
+    arxiv_categories: list[str] = Field(default_factory=list)  # e.g. ["cs.CV", "cs.GR"]; arXiv provider only
     weekly_reading_hours: float | None = None
     created_at: datetime | None = None
     updated_at: datetime | None = None

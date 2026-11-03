@@ -1,6 +1,6 @@
 # Integration capability matrix
 
-Verified against official documentation on **2026-11-01**. "Provider" is what the external service officially offers. "paperscout" is what this project implements today. The same data is available at runtime through `uv run -q paperscout capabilities`.
+Verified against official documentation on **2026-11-01** (Semantic Scholar, Zotero, Claude Code) and **2026-11-02** (arXiv). "Provider" is what the external service officially offers. "paperscout" is what this project implements today. The same data is available at runtime through `uv run -q paperscout capabilities`.
 
 Status values: **supported**, **unsupported** (no official interface), or **not verified**.
 
@@ -14,6 +14,19 @@ Status values: **supported**, **unsupported** (no official interface), or **not 
 | 4. **Zotero collections** | Collections in your Zotero library | Via file export → `import` today; Web/Local API planned (Phase 3) | Not yet (Phase 3, preview + confirmation required) |
 
 paperscout never presents a local folder operation as a Semantic Scholar website operation. Every folder report names its source, for example `local paperscout folder "3D Scene Editing" (fld_…); not a Semantic Scholar website folder`.
+
+## arXiv (no key; default when no Semantic Scholar key is configured)
+
+| Capability | Provider | Access | Auth | paperscout | Limitations |
+|---|---|---|---|---|---|
+| Search `export.arxiv.org/api/query` with `all:`/`ti:`/`cat:` fields, `submittedDate:[… TO …]`, `sortBy=relevance\|submittedDate` | supported | read | none | yes | keyword relevance only; at most 2,000 results per call |
+| Lookup by arXiv ID (`id_list`) | supported | read | none | yes | arXiv papers only; DOIs can't be looked up (paperscout falls back to the title) |
+| Citations, references, recommendations | **not offered** | — | — | — | Use Semantic Scholar with a key |
+
+- **Rate limit:** *"make no more than one request every three seconds, and limit requests to a single connection at a time"*. paperscout enforces a minimum interval of 3 s whatever the configuration says. (Source: https://info.arxiv.org/help/api/tou.html.)
+- **Licence:** descriptive metadata is CC0 (*"Retrieve, store, transform, and share descriptive metadata"*). You must not store or serve e-prints (PDFs) without permission, or represent a project as endorsed by arXiv. paperscout stores metadata only and links to abstract pages.
+- **Errors** come back as Atom feeds with a single error entry; paperscout reports their message. (Source: https://info.arxiv.org/help/api/user-manual.html.)
+- **Verified live (2026-11-02):** lookup, search, parsing, saving, ranking and the reading plan, through the isolated smoke test.
 
 ## Semantic Scholar
 

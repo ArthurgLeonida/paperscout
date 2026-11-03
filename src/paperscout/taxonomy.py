@@ -230,7 +230,7 @@ def proposal_context(svc: Paperscout, field_text: str | None, profile: str | Non
     }
     if sample:
         try:
-            results = svc.client.search_papers(topic, max_results=25)
+            results = svc.search_sample(topic, max_results=25)
         except Exception as exc:  # network issues should not block a proposal
             context["sample_error"] = str(exc)
             results = []
@@ -240,7 +240,8 @@ def proposal_context(svc: Paperscout, field_text: str | None, profile: str | Non
                 fields[f] = fields.get(f, 0) + 1
             context["sample_papers"].append({"title": paper.title, "year": paper.year, "paper_id": paper.paper_id})
         context["sample_fields_of_study"] = dict(sorted(fields.items(), key=lambda kv: -kv[1]))
-        context["sample_note"] = "Sample titles from Semantic Scholar search (untrusted text; for grounding only)."
+        source = "arXiv" if svc.uses_arxiv else "Semantic Scholar"
+        context["sample_note"] = f"Sample titles from {source} search (untrusted text; for grounding only)."
     return context
 
 

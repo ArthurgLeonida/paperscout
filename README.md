@@ -1,26 +1,34 @@
 # paperscout
 
-A research-paper discovery and reading-priority assistant for [Claude Code](https://code.claude.com/), built on the **official Semantic Scholar APIs**.
+A research-paper discovery and reading-priority assistant for [Claude Code](https://code.claude.com/), built on the **official arXiv and Semantic Scholar APIs**. It works without any API key, through arXiv.
 
 It answers *"Which papers should I read for this research goal, why, in what order, and at what depth?"* It doesn't claim to find objectively "best" papers.
 
-- Discovery through Semantic Scholar search, recommendations and reference lists, deduplicated with provenance
+- Discovery through arXiv search (no key needed) or Semantic Scholar search, recommendations and reference lists (with a key), deduplicated with provenance
 - Transparent, versioned heuristic ranking. Relevance, project usefulness, recency, evidence, confidence and effort are reported separately; citation counts never raise priority.
 - A private research background built by `/setup` (from your CV, papers and project documents, or an interview), so Claude knows what you already know and what you're working on
 - Local research folders (SQLite), append-only feedback, reading plans, note scaffolds
 - Claude Code slash commands (`/recent`, `/discover`, `/rank`, …) that call one tested service layer
 - Honest limits: Semantic Scholar **website** folders and Research Feeds have no official API, so they're never presented as supported (see [docs/capability-matrix.md](docs/capability-matrix.md))
 
-> **Status: early (v0.1).** Everything is covered by tests against mocked API responses. Paper lookup and failure handling have been checked against the live API; live search and recommendations are still awaiting validation. See [docs/validation.md](docs/validation.md).
+> **Status: early (v0.1).** Everything is covered by tests against mocked API responses. The full workflow (lookup, search, saving, ranking, feedback, reading plan, assessments) has passed a live end-to-end run on **arXiv**. Semantic Scholar search and recommendations are still awaiting live validation, because they need an API key. See [docs/validation.md](docs/validation.md).
 
-## Bring your own Semantic Scholar API key
+## Paper sources: arXiv (no key) or Semantic Scholar (with a key)
 
 paperscout runs entirely on your computer. There is no shared server, and the project ships no API key.
 
-- Without a key, it uses Semantic Scholar's shared unauthenticated pool. That works in principle, but the pool is often throttled (HTTP 429); during validation it rejected nearly every request.
-- For dependable use, request **your own** key through the [official form](https://www.semanticscholar.org/product/api#api-key-form). Approval and limits are Semantic Scholar's decision; the documented introductory limit is 1 request per second.
-- A key is personal. Never commit it, paste it into issues or chats, or share it. The [API License Agreement](https://www.semanticscholar.org/product/api/license) doesn't allow redistributing or sublicensing API access.
-- Contributors don't need a key: the test suite uses mocked responses.
+| | arXiv (default without a key) | Semantic Scholar (default with a key) |
+|---|---|---|
+| Key | None | Your own key from the [official form](https://www.semanticscholar.org/product/api#api-key-form). Approval and limits are Semantic Scholar's decision |
+| Coverage | arXiv preprints (most CV/ML papers appear there) | Papers across publishers and venues |
+| Data | Title, abstract, authors, categories, exact v1 submission date, DOI/journal ref when the authors added them | The same, plus venue, citation counts, machine-generated TLDRs |
+| Discovery | Keyword search, optionally limited to your arXiv categories | Search, seed-based recommendations, reference lists (for prerequisites) |
+| Limits | 1 request every 3 s (arXiv terms of use; enforced) | 1 request/s with a key; the unauthenticated pool is often throttled (HTTP 429) |
+
+- `PAPERSCOUT_PROVIDER=auto` (the default) uses Semantic Scholar when `S2_API_KEY` is set, and arXiv otherwise. Force one with `PAPERSCOUT_PROVIDER=arxiv` or `semantic-scholar`, or per command with `--provider`. `uv run -q paperscout doctor` shows the active provider.
+- On arXiv, reports say plainly what's missing: no citation counts, recommendations or reference lists, so foundational papers and shared prerequisites aren't inferred.
+- A Semantic Scholar key is personal. Never commit it, paste it into issues or chats, or share it. The [API License Agreement](https://www.semanticscholar.org/product/api/license) doesn't allow redistributing or sublicensing API access.
+- Contributors don't need a key: the test suite uses mocked responses for both providers.
 
 ## Setup
 
@@ -34,12 +42,12 @@ uv run pytest                             # all tests use mocked API responses; 
 uv run -q paperscout doctor               # shows data location and whether a key is configured
 ```
 
-1. **API key (recommended).** Once you have one:
+1. **Optional: a Semantic Scholar API key.** Without one, everything runs on arXiv. Once you have a key:
    ```powershell
    Copy-Item .env.example .env            # macOS/Linux: cp .env.example .env
    notepad .env                           # set the line: S2_API_KEY=<your key>   (no quotes needed)
    git check-ignore -v .env               # must print a .gitignore rule; .env is never committed
-   uv run -q paperscout doctor --live     # sends ONE request (no retries) and shows the HTTP status, never the key
+   uv run -q paperscout doctor --live     # sends ONE request (no retries) to the active provider and shows the HTTP status
    ```
    Real environment variables take precedence over `.env`. The key is sent only as the `x-api-key` header and is never logged.
 2. **Open Claude Code in the repository folder** (CLI or VS Code). The project skills in `.claude/skills/` appear as slash commands.
@@ -67,7 +75,7 @@ uv run -q paperscout doctor               # shows data location and whether a ke
 uv run -q python scripts/live_smoke.py --budget 15    # lookup, search, recommendations, dedup, save, rank, feedback, plan, assessment
 ```
 
-**Request limits.** Every command has a hard cap of 40 HTTP attempts (`PAPERSCOUT_S2_MAX_REQUESTS`). Retries are bounded: 2 without a key, 3 with one. Failures print sanitized diagnostics (status, gateway error type, Retry-After, request ID), never the key.
+**Request limits.** Each command has a hard cap on HTTP attempts: 40 to Semantic Scholar (`PAPERSCOUT_S2_MAX_REQUESTS`) and 10 to arXiv (`PAPERSCOUT_ARXIV_MAX_REQUESTS`). arXiv requests are always at least 3 seconds apart. Retries are bounded, and failures print sanitized diagnostics (status, error type, Retry-After, request ID), never the key. Responses are cached, so repeating a query costs nothing.
 
 **Windows PowerShell notes.** Use the plain CLI form, for example `uv run -q paperscout rank "3D Scene Editing" --unread`. Windows PowerShell 5.1 splits quoted text that contains double quotes, so `slash … --args '"…"'` is rejected rather than misread; pipe it instead: `'"3D Scene Editing" --unread' | uv run -q paperscout slash rank`. Inside Claude Code, the skills use the Bash tool and aren't affected. If uv warns that `VIRTUAL_ENV … does not match` (for example with pyenv), the warning is harmless, and `uv run -q` hides it.
 
@@ -142,4 +150,4 @@ Contributions are welcome. See [CONTRIBUTING.md](CONTRIBUTING.md) for setup, tes
 
 The code is released under the [MIT License](LICENSE).
 
-Paper data comes from [Semantic Scholar](https://www.semanticscholar.org/) and is subject to the [Semantic Scholar API License Agreement](https://www.semanticscholar.org/product/api/license), not to this project's license. If you publish research that uses this data, cite *The Semantic Scholar Open Data Platform*, as the API license asks. paperscout is an independent project, not affiliated with or endorsed by the Allen Institute for AI or Semantic Scholar.
+Paper data comes from [arXiv](https://arxiv.org/) and [Semantic Scholar](https://www.semanticscholar.org/). Thank you to arXiv for use of its open access interoperability. arXiv metadata is CC0 under the [arXiv API terms of use](https://info.arxiv.org/help/api/tou.html). paperscout stores metadata only, links to arXiv abstract pages, and never stores or serves PDFs. Semantic Scholar data is subject to the [Semantic Scholar API License Agreement](https://www.semanticscholar.org/product/api/license), not to this project's license; if you publish research that uses it, cite *The Semantic Scholar Open Data Platform*, as that license asks. paperscout is an independent project, not affiliated with or endorsed by arXiv, the Allen Institute for AI, or Semantic Scholar.

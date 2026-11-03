@@ -10,9 +10,11 @@ from typing import Any
 from paperscout import __version__
 from paperscout.background import inspect_background
 from paperscout.config import S2_KEY_FORM, Settings, env_candidates
-from paperscout.s2.client import S2Error, SemanticScholarClient
+from paperscout.arxiv.client import ArxivClient
+from paperscout.http import ApiError
+from paperscout.s2.client import SemanticScholarClient
 
-LIVE_PROBE_ID = "ARXIV:2308.04079"  # a stable, well-known record used only as an access probe
+LIVE_PROBE_ID = "2308.04079"  # a stable, well-known arXiv paper used only as an access probe
 
 TABLES = {
     "profiles": "profiles",
@@ -48,13 +50,25 @@ def inspect_database(settings: Settings) -> dict[str, Any]:
 
 
 def live_probe(settings: Settings, transport=None) -> dict[str, Any]:
-    probe_settings = replace(settings, s2_max_retries=0, s2_max_requests=1)
-    client = SemanticScholarClient(probe_settings, cache=None, transport=transport)
-    result: dict[str, Any] = {"request": f"GET /graph/v1/paper/{LIVE_PROBE_ID}?fields=…", "retries": 0}
+    """Exactly one request, no retries, to the active provider."""
+    if settings.effective_provider == "arxiv":
+        probe_settings = replace(settings, arxiv_max_retries=0, arxiv_max_requests=1)
+        client = ArxivClient(probe_settings, cache=None, transport=transport)
+        request = f"GET {settings.arxiv_base}?id_list={LIVE_PROBE_ID}"
+    else:
+        probe_settings = replace(settings, s2_max_retries=0, s2_max_requests=1)
+        client = SemanticScholarClient(probe_settings, cache=None, transport=transport)
+        request = f"GET /graph/v1/paper/ARXIV:{LIVE_PROBE_ID}?fields=…"
+    result: dict[str, Any] = {"request": request, "retries": 0, "provider": client.policy.provider}
     try:
-        paper = client.get_paper(LIVE_PROBE_ID)
+        if isinstance(client, ArxivClient):
+            paper = client.get_papers([LIVE_PROBE_ID])[0]
+            if paper is None:
+                raise ApiError("arXiv returned no entry for the probe paper")
+        else:
+            paper = client.get_paper(f"ARXIV:{LIVE_PROBE_ID}")
         result.update(ok=True, title=paper.title)
-    except S2Error as exc:
+    except ApiError as exc:
         result.update(ok=False, error=str(exc).split(" Request a key")[0])
     finally:
         client.close()
@@ -106,12 +120,14 @@ def render(report: dict[str, Any]) -> str:
     else:
         lines.append(f"- S2_API_KEY: not configured. Requests use the shared unauthenticated pool. "
                      f"Request a key at {key['how_to_get']} and put it in .env (see README).")
-    lines.append(f"- Request policy: ≥{s['s2_min_interval']}s between requests, {s['s2_max_retries']} retries, "
-                 f"at most {s['s2_max_requests']} HTTP attempts per command")
+    lines.append(f"- Paper provider: {s['provider']}")
+    lines.append(f"- Request policy: Semantic Scholar ≥{s['s2_min_interval']}s between requests, "
+                 f"{s['s2_max_retries']} retries, at most {s['s2_max_requests']} attempts per command; "
+                 f"arXiv ≥{s['arxiv_min_interval']}s between requests, at most {s['arxiv_max_requests']} per command")
     probe = report.get("live_probe")
     if probe:
         status = "OK" if probe["ok"] else "FAILED"
-        lines.append(f"- Live probe ({probe['request']}, no retries): {status}")
+        lines.append(f"- Live probe to {probe['provider']} ({probe['request']}, no retries): {status}")
         if probe.get("response"):
             r = probe["response"]
             lines.append(f"  - HTTP {r.get('status')}; error type: {r.get('error_type') or 'none'}; "

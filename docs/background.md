@@ -10,7 +10,7 @@ paperscout recommends papers *for a particular researcher*. To do that well, it 
 | `02-research-goals.md` | Project, research question, outcomes, interest rings, seed papers, criteria, constraints | Claude (every session) |
 | `03-reading-style.md` | Time budget, session length, learning style, devices, tools, access | Claude (every session) |
 | `04-recommendation-criteria.md` | Must-read criteria, your definitions of foundation / baseline / candidate method / survey / peripheral, fit and friction signals, calibration from feedback | Claude (every session) |
-| `profile.json` | Machine-readable subset: field, research question, keywords, seeds, criteria, recency, knowledge map, weekly hours | paperscout's deterministic ranking, after `paperscout profile sync` |
+| `profile.json` | Machine-readable subset: field, research question, keywords, seeds, criteria, recency, knowledge map, optional arXiv categories, weekly hours | paperscout's deterministic ranking, after `paperscout profile sync` |
 | `../CLAUDE.local.md` | `@imports` of the four prose files | Claude Code, which loads it at the start of every session |
 
 The tracked templates live in `templates/`. Your filled-in copies are never committed.

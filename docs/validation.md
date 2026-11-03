@@ -4,8 +4,9 @@ Last updated **2026-11-02**. "Live" means against the real Semantic Scholar API.
 
 | Capability | Implemented | Mocked tests | Live API | Real slash command |
 |---|---|---|---|---|
+| **arXiv provider: lookup, search, dedup, save, rank, feedback, reading plan, assessment save/reopen** | yes | yes (22 tests in `test_arxiv.py`) | **pass** (2026-11-02): isolated smoke test, 8 steps passed and recommendations skipped (not offered by arXiv); about 4 requests paced ≥3 s; a rerun was served fully from cache | slash commands on arXiv: not yet run (your test) |
 | Paper lookup (ID/URL → record) | yes | yes | **pass**: an arXiv URL resolved to the full 3DGS record (DOI, venue, date, abstract). Later lookups got 429 | — |
-| Topic search `/paper/search` | yes | yes | **not verified**: 429 on every attempt | `/recent`: throttled, reported honestly, no invented results |
+| Semantic Scholar topic search `/paper/search` | yes | yes | **not verified**: 429 on every attempt | `/recent`: throttled, reported honestly, no invented results |
 | Title match, batch/TLDR enrichment | yes | yes | not verified | — |
 | Seed recommendations | yes | yes | not verified | — |
 | Reference lists (prerequisite detection) | yes | yes | not verified | — |
@@ -35,6 +36,14 @@ Last updated **2026-11-02**. "Live" means against the real Semantic Scholar API.
 - This machine sent about 40 unauthenticated requests over about 80 minutes. That's far below the documented shared limit, but the response doesn't say whether throttling is global or per IP. Early retry bursts (up to 8 attempts in two minutes) may have contributed slightly. The defaults are now 2 retries without a key and a hard per-command budget.
 - 2026-11-02: one more single-request probe (`doctor --live`) also got 429. Throttling had persisted across both days.
 - One way to tell whether the throttle is per IP: run `uv run -q paperscout doctor --live` once from a different network, such as a phone hotspot. A 200 there would point to per-IP throttling on the usual network.
+
+## Trying arXiv yourself
+
+```powershell
+uv run -q paperscout doctor --live                       # expect: Paper provider arxiv, probe HTTP 200
+uv run -q python scripts/live_smoke.py --provider arxiv  # isolated database under data/smoke
+```
+Then in Claude Code: `/recent text-guided 3D Gaussian scene editing --days 90 --limit 10` and `/discover text-guided 3D Gaussian scene editing`.
 
 ## When your API key arrives (runbook)
 

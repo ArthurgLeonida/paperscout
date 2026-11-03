@@ -60,7 +60,7 @@ Ask conversationally, a few questions at a time, and let the user answer in thei
 
 1. **background**: career stage, field, education, research and work experience, own publications, tools, compute available, languages they read papers in.
 2. **knowledge**: build the knowledge map from 5–15 topics relevant to their field and project. Offer the core topics you've heard so far and ask for a level for each: expert, working, familiar or new. Explain that honesty matters. `expert` makes background papers lighter reading; `new` makes paperscout recommend reading prerequisites properly. Ask which papers they already know well.
-3. **goals**: current project, research question (one sentence), description, horizon, desired outcomes, interest rings (core / adjacent / background / out of scope), positive and negative seed papers (IDs, DOIs, arXiv IDs or URLs), inclusion and exclusion criteria, recency preference, whether to include foundational work, constraints.
+3. **goals**: current project, research question (one sentence), description, horizon, desired outcomes, interest rings (core / adjacent / background / out of scope), positive and negative seed papers (IDs, DOIs, arXiv IDs or URLs; with the arXiv provider, only arXiv IDs can be fetched), inclusion and exclusion criteria, recency preference, whether to include foundational work, constraints, and optional arXiv categories such as `cs.CV, cs.GR` (they restrict arXiv searches).
 4. **reading**: weekly hours, session length, entry point (theory, code or figures), depth balance, attitude to surveys, mathematical depth, device and annotation workflow, reference manager, access to paywalled papers.
 5. **criteria**: what makes a paper a must-read for them, their meaning of foundation / baseline / candidate method / survey / peripheral for this project, phrases that signal a strong fit or friction, topics to skip unless asked. Proactively suggest adjacent areas worth watching, based on their goals.
 6. **reading-history**: see Step 3.4.
@@ -81,6 +81,7 @@ Ask conversationally, a few questions at a time, and let the user answer in thei
    - `recency_preference`: strong, moderate or none
    - `include_foundational`
    - `knowledge`: every confirmed knowledge-map row, as `{topic, level, evidence}`
+   - `arxiv_categories`: the optional arXiv categories, such as `["cs.CV", "cs.GR"]`, or `[]`
    - `weekly_reading_hours`
 
    Show the JSON, then run `uv run -q paperscout profile sync`. It rejects leftover placeholders and invalid values; fix the file and retry. It also makes this the active profile.

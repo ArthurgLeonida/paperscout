@@ -12,7 +12,9 @@
         ▼
  paperscout.service.Paperscout  ◄── also used by planning, taxonomy, evaluation
    ├── identifiers   DOI / arXiv / S2 / CorpusId / PMID / ACL / URL / title normalisation
-   ├── s2.client     official Graph + Recommendations APIs: pacing, retries, Retry-After, cache, batching
+   ├── http          shared ApiClient: pacing, request budget, retries, Retry-After, cache, sanitized diagnostics
+   ├── s2.client     Semantic Scholar Graph + Recommendations endpoints (on ApiClient)
+   ├── arxiv.client  arXiv query API: query building, Atom parsing, ID lookup (on ApiClient, ≥3 s pacing)
    ├── dedup         paperId → DOI → arXiv → CorpusId → title+year; provenance merged
    ├── ranking       transparent heuristic scorer + versioned TOML config (knowledge map adjusts depth)
    ├── background    profile/ status, placeholder checks (used by profile sync and doctor)
@@ -21,6 +23,8 @@
 ```
 
 Every interface goes through the same service layer, so retrieval, ranking and storage exist exactly once. Skills contain no business logic. They pass the raw arguments to the CLI and tell Claude how to present the output honestly.
+
+**Providers.** `Settings.effective_provider` picks the paper source: Semantic Scholar when a key is configured, otherwise arXiv, or whatever `PAPERSCOUT_PROVIDER` / `--provider` say. The service routes search, lookup, title resolution, seeds and imports through the active provider. Graph-only steps (recommendations, reference lists, TLDR enrichment) run only on Semantic Scholar, and reports state when they were unavailable. The same paper reached through different providers is merged into the existing local record (matched by DOI or arXiv ID), so feedback and folder membership follow it.
 
 The researcher's background has two layers (see `background.md`). The prose files in `profile/` give Claude the context to interpret results; they're imported through the git-ignored `CLAUDE.local.md`. `profile.json` is the machine-readable part, which the deterministic ranking uses after `paperscout profile sync`. `/setup` writes both and keeps them consistent.
 

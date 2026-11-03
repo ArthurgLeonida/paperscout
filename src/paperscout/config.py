@@ -18,6 +18,18 @@ from pathlib import Path
 S2_GRAPH_BASE = "https://api.semanticscholar.org/graph/v1"
 S2_RECS_BASE = "https://api.semanticscholar.org/recommendations/v1"
 S2_KEY_FORM = "https://www.semanticscholar.org/product/api#api-key-form"
+ARXIV_API = "https://export.arxiv.org/api/query"
+# arXiv API terms of use: "no more than one request every three seconds".
+ARXIV_MIN_INTERVAL = 3.0
+PROVIDERS = ("auto", "arxiv", "semantic-scholar")
+
+
+def normalize_provider(value: str) -> str:
+    key = value.strip().lower()
+    key = {"s2": "semantic-scholar", "semanticscholar": "semantic-scholar"}.get(key, key)
+    if key not in PROVIDERS:
+        raise ValueError(f"Unknown provider {value!r}; use one of: {', '.join(PROVIDERS)}")
+    return key
 
 
 def load_dotenv(path: Path) -> list[str]:
@@ -117,9 +129,21 @@ class Settings:
     s2_max_backoff: float = 60.0
     s2_max_requests: int = 40  # hard cap on HTTP attempts per command (retries included)
     recent_days: int = 90
+    provider: str = "auto"  # auto | arxiv | semantic-scholar
+    arxiv_base: str = ARXIV_API
+    arxiv_min_interval: float = ARXIV_MIN_INTERVAL
+    arxiv_max_retries: int = 2
+    arxiv_max_requests: int = 10
     cache_ttl: CacheTTL = field(default_factory=CacheTTL)
     key_source: str = "not set"  # "environment" | ".env: <path>" | "not set"
     env_files_loaded: tuple[str, ...] = ()
+
+    @property
+    def effective_provider(self) -> str:
+        """``auto`` means Semantic Scholar when a key is configured, otherwise arXiv."""
+        if self.provider != "auto":
+            return self.provider
+        return "semantic-scholar" if self.s2_api_key else "arxiv"
 
     @property
     def db_path(self) -> Path:
@@ -149,6 +173,9 @@ class Settings:
             "s2_max_retries": self.s2_max_retries,
             "s2_max_requests": self.s2_max_requests,
             "recent_days": self.recent_days,
+            "provider": f"{self.effective_provider} (setting: {self.provider})",
+            "arxiv_min_interval": self.arxiv_min_interval,
+            "arxiv_max_requests": self.arxiv_max_requests,
         }
 
 
@@ -176,6 +203,9 @@ def load_settings(cwd: Path | None = None) -> Settings:
         s2_timeout=_float("PAPERSCOUT_S2_TIMEOUT", 30.0),
         s2_max_requests=_int("PAPERSCOUT_S2_MAX_REQUESTS", 40),
         recent_days=_int("PAPERSCOUT_RECENT_DAYS", 90),
+        provider=normalize_provider(os.environ.get("PAPERSCOUT_PROVIDER", "auto")),
+        arxiv_min_interval=max(ARXIV_MIN_INTERVAL, _float("PAPERSCOUT_ARXIV_MIN_INTERVAL", ARXIV_MIN_INTERVAL)),
+        arxiv_max_requests=_int("PAPERSCOUT_ARXIV_MAX_REQUESTS", 10),
         key_source=source if key else "not set",
         env_files_loaded=tuple(loaded_files),
     )

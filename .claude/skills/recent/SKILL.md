@@ -1,7 +1,7 @@
 ---
 name: recent
-description: Find and prioritise recently published papers on a research topic using paperscout (official Semantic Scholar public API, ranked against the active research profile). Use when the user asks for recent or new papers on a topic.
-argument-hint: <topic> [--days N | --since YYYY-MM-DD] [--until YYYY-MM-DD] [--folder NAME] [--profile NAME] [--limit N] [--include-read] [--verbose]
+description: Find and prioritise recently published papers on a research topic using paperscout (arXiv without a Semantic Scholar key, Semantic Scholar with one; ranked against the active research profile). Use when the user asks for recent or new papers on a topic.
+argument-hint: <topic> [--days N | --since YYYY-MM-DD] [--until YYYY-MM-DD] [--folder NAME] [--profile NAME] [--limit N] [--include-read] [--provider arxiv|semantic-scholar] [--verbose]
 allowed-tools: Bash(uv run -q paperscout *)
 ---
 
@@ -25,7 +25,7 @@ Do not add, drop, or reinterpret options: the CLI owns argument parsing, default
 
 ## 2. Present the result concisely
 
-Start with one line each for: the source ("Semantic Scholar public API, not your website Research Feed"), the profile and mode used, and the **actual date window**. If the output has notices (for example a profile mismatch, year-only dates, or recommendations unavailable), state them.
+Start with one line each for: the source exactly as the report states it (arXiv or the Semantic Scholar public API; never your website Research Feed), the profile and mode used, and the **actual date window** with its date basis. If the output has notices (for example a profile mismatch, year-only dates, or recommendations unavailable), state them.
 
 Then give a shortlist in the report's order. For each paper:
 - **Title** (link), date, and the year-only or unknown-date flag if present.

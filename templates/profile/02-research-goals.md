@@ -36,3 +36,5 @@ similar work; negative seeds push away from it. -->
 - **Recency preference:** [strong / moderate / none] - [WHY]
 - **Include foundational work:** [yes / no]
 - **Constraints:** [CONSTRAINTS] <!-- e.g. compute limits, need public code, no proprietary data -->
+- **arXiv categories (optional):** <!-- e.g. cs.CV, cs.GR. Restricts arXiv searches; leave empty to search all of arXiv.
+  Copied into profile.json "arxiv_categories". Only used when the arXiv provider is active. -->

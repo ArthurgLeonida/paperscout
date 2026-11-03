@@ -18,9 +18,9 @@ from typing import Callable
 
 from paperscout.capabilities import CAPABILITIES, UnsupportedCapability, check_rank_source, require
 from paperscout.commands import SPECS, Parsed, UsageError, parse_raw, parse_tokens, spec_for
-from paperscout.config import load_settings, profile_dir
+from paperscout.config import load_settings, normalize_provider, profile_dir
 from paperscout.reports import RankingReport, render_ranking, sanitize_untrusted, save_report, to_json
-from paperscout.s2.client import S2Error
+from paperscout.http import ApiError
 from paperscout.service import Paperscout, ServiceError
 
 EXIT_OK, EXIT_ERROR, EXIT_USAGE, EXIT_UNSUPPORTED = 0, 1, 2, 3
@@ -424,6 +424,8 @@ def run(command: str, parsed_or_tokens: Parsed | list[str], svc: Paperscout | No
         if svc is None and spec.name not in NO_SERVICE:
             svc = Paperscout.open()
             own_service = True
+        if svc is not None and parsed.options.get("provider"):
+            svc.provider = normalize_provider(parsed.options["provider"])
         HANDLERS[spec.name](svc, parsed, out)
         return EXIT_OK, out.text()
     except UsageError as exc:
@@ -432,8 +434,8 @@ def run(command: str, parsed_or_tokens: Parsed | list[str], svc: Paperscout | No
         return EXIT_UNSUPPORTED, f"Not supported: {exc}\n"
     except ServiceError as exc:
         return EXIT_ERROR, f"Error: {exc}\n"
-    except S2Error as exc:
-        return EXIT_ERROR, f"Semantic Scholar error: {exc}\n"
+    except ApiError as exc:
+        return EXIT_ERROR, f"Error: {exc}\n"
     except (OSError, json.JSONDecodeError) as exc:
         return EXIT_ERROR, f"Error: {exc}\n"
     finally:

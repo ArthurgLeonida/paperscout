@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from dataclasses import dataclass, field
 from datetime import date, timedelta
 from pathlib import Path
@@ -41,13 +42,27 @@ from paperscout.models import (
 )
 from paperscout.ranking.scorer import HeuristicScorer, RankingConfig, RankingContext, load_ranking_config
 from paperscout.reports import ExcludedPaper, FolderSection, RankingReport
-from paperscout.s2.client import S2Error, S2NotFound, SemanticScholarClient
+from paperscout.http import ApiError, ApiNotFound
+from paperscout.arxiv.client import ArxivClient
+from paperscout.s2.client import SemanticScholarClient
 from paperscout.store.db import Conflict, NotFound, Store, connect
 
 log = logging.getLogger("paperscout.service")
 
 PRIORITY_ORDER = {Priority.p1: 0, Priority.p2: 1, Priority.p3: 2, Priority.unknown: 3, Priority.skip: 4}
-S2_SOURCE_LABEL = "Semantic Scholar public API (search + recommendations), not your website Research Feed"
+S2_PAPER_ID = re.compile(r"^[0-9a-f]{40}$")
+SOURCE_LABELS = {
+    "semantic-scholar": "Semantic Scholar public API (search + recommendations), not your website Research Feed",
+    "arxiv": "arXiv API (keyword search over arXiv preprints), not your Semantic Scholar feed",
+}
+DATE_BASIS = {
+    "semantic-scholar": "Semantic Scholar publicationDate, often the first public version (e.g. arXiv v1); "
+                        "indexing date is not used",
+    "arxiv": "arXiv submission date of the first version (v1); later revisions are not used",
+}
+ARXIV_LIMITS = ("Source: arXiv (no Semantic Scholar key configured, or arXiv selected). arXiv provides no citation "
+                "counts, recommendations or reference lists, so foundational status and shared prerequisites are "
+                "not inferred, and only arXiv preprints are found.")
 
 
 class ServiceError(RuntimeError):
@@ -76,10 +91,13 @@ class Paperscout:
         client: SemanticScholarClient,
         config: RankingConfig | None = None,
         today: date | None = None,
+        arxiv: ArxivClient | None = None,
     ):
         self.settings = settings
         self.store = store
         self.client = client
+        self.arxiv = arxiv or ArxivClient(settings, cache=store)
+        self.provider = settings.effective_provider  # "arxiv" or "semantic-scholar"; the CLI may override it
         self.config = config or load_ranking_config()
         self.scorer = HeuristicScorer(self.config)
         self.today = today or date.today()
@@ -90,12 +108,58 @@ class Paperscout:
         settings = settings or load_settings()
         store = Store(connect(settings.db_path))
         client = SemanticScholarClient(settings, cache=store, transport=transport)
-        return cls(settings, store, client, today=today)
+        arxiv = ArxivClient(settings, cache=store, transport=transport)
+        return cls(settings, store, client, today=today, arxiv=arxiv)
 
     def close(self) -> None:
+        """Release clients and the database; safe to call more than once."""
+        if getattr(self, "_closed", False):
+            return
+        self._closed = True
         self.client.close()
+        self.arxiv.close()
         self.store.cache_purge_expired()
         self.store.conn.close()
+
+    # ================================================================== providers
+    @property
+    def uses_arxiv(self) -> bool:
+        return self.provider == "arxiv"
+
+    def api_stats(self) -> dict[str, int]:
+        return {
+            "api_calls": self.client.network_calls + self.arxiv.network_calls,
+            "cache_hits": self.client.cache_hits + self.arxiv.cache_hits,
+        }
+
+    def search_sample(self, query: str, max_results: int = 25) -> list[tuple[int, Paper]]:
+        """Plain search with the active provider (used to ground folder proposals)."""
+        if self.uses_arxiv:
+            return self.arxiv.search_papers(query, max_results=max_results)
+        return self.client.search_papers(query, max_results=max_results)
+
+    @staticmethod
+    def _merge_metadata(local: Paper, new: Paper) -> Paper:
+        """Keep the stored identity and fill gaps, so a paper seen through two providers stays one record."""
+        data = new.model_dump()
+        for key, value in local.model_dump().items():
+            if data.get(key) in (None, "", [], {}):
+                data[key] = value
+        if (new.venue or "").startswith("arXiv preprint") and local.venue:
+            data["venue"] = local.venue
+        data["external_ids"] = {**local.external_ids, **new.external_ids}
+        data["paper_id"] = local.paper_id
+        return Paper.model_validate(data)
+
+    def _canonicalize(self, candidates: list[Candidate]) -> None:
+        """Map candidates to papers already stored under another provider's ID, so feedback and folders follow."""
+        for cand in candidates:
+            paper = cand.paper
+            if self.store.get_paper(paper.paper_id) is not None:
+                continue
+            local = self.store.find_local_paper(doi=paper.doi, arxiv_id=paper.arxiv_id)
+            if local is not None and local.paper_id != paper.paper_id:
+                cand.paper = self._merge_metadata(local, paper)
 
     # ================================================================== profiles
     def save_profile(self, profile: ResearchProfile, activate: bool = False) -> ResearchProfile:
@@ -217,10 +281,22 @@ class Paperscout:
                 local = self._local_lookup(ref)
                 if local is not None:
                     return Resolution("resolved", ref, local)
+            if ref.kind == "arxiv" and self.uses_arxiv:
+                paper = self.arxiv.get_papers([ref.value])[0]
+                if paper is None:
+                    return Resolution("not_found", ref, message=f"arXiv has no paper {ref.value}.")
+                self.store.upsert_paper(paper, "arxiv.id")
+                return Resolution("resolved", ref, paper)
             try:
                 paper = self.client.get_paper(ref.s2_id)
-            except S2NotFound:
+            except ApiNotFound:
                 return Resolution("not_found", ref, message=f"Semantic Scholar has no record for {ref.s2_id}.")
+            except ApiError as exc:
+                if not self.uses_arxiv:
+                    raise
+                return Resolution("not_found", ref, message=(
+                    f"Looking up {ref.s2_id} needs Semantic Scholar, which is unavailable ({exc}). "
+                    "With the arXiv provider, use an arXiv ID or the paper title instead."))
             self.store.upsert_paper(paper, "s2.paper")
             return Resolution("resolved", ref, paper)
         return self._resolve_title(ref)
@@ -228,18 +304,22 @@ class Paperscout:
     def _resolve_title(self, ref: PaperRef) -> Resolution:
         title = ref.value
         options: list[Paper] = []
-        match = self.client.match_title(title)
-        if match:
-            options.append(Paper.from_s2(match))
-        for _, paper in self.client.search_papers(title, max_results=5):
-            options.append(paper)
+        source_name = "arXiv" if self.uses_arxiv else "Semantic Scholar"
+        if self.uses_arxiv:
+            options += self.arxiv.title_search(title)
+        else:
+            match = self.client.match_title(title)
+            if match:
+                options.append(Paper.from_s2(match))
+            options += [paper for _, paper in self.client.search_papers(title, max_results=5)]
         unique, _ = deduplicate([Candidate(paper=p) for p in options])
+        self._canonicalize(unique)
         options = [c.paper for c in unique]
         if not options:
-            return Resolution("not_found", ref, message=f"No Semantic Scholar paper matches the title {title!r}.")
+            return Resolution("not_found", ref, message=f"No {source_name} paper matches the title {title!r}.")
         exact = [p for p in options if normalize_title(p.title) == normalize_title(title)]
         if len(exact) == 1:
-            self.store.upsert_paper(exact[0], "s2.match")
+            self.store.upsert_paper(exact[0], "arxiv.title" if self.uses_arxiv else "s2.match")
             return Resolution("resolved", ref, exact[0])
         close = sorted(options, key=lambda p: _title_similarity(title, p.title), reverse=True)
         close = [p for p in close if _title_similarity(title, p.title) >= 0.5]
@@ -247,7 +327,7 @@ class Paperscout:
             return Resolution("ambiguous", ref, options=exact,
                               message="Several papers share this exact title; choose one by ID.")
         if len(close) == 1 and _title_similarity(title, close[0].title) >= 0.85:
-            self.store.upsert_paper(close[0], "s2.match")
+            self.store.upsert_paper(close[0], "arxiv.title" if self.uses_arxiv else "s2.match")
             return Resolution("resolved", ref, close[0])
         if close:
             return Resolution("ambiguous", ref, options=close[:5],
@@ -267,6 +347,7 @@ class Paperscout:
     def _fetch_seed_papers(self, refs: Iterable[str], notices: list[str]) -> list[Paper]:
         papers: list[Paper] = []
         to_fetch: list[tuple[str, str]] = []
+        arxiv_ids: list[tuple[str, str]] = []
         for raw in dict.fromkeys(r for r in refs if r and r.strip()):
             try:
                 ref = parse_paper_ref(raw)
@@ -279,12 +360,30 @@ class Paperscout:
             local = self._local_lookup(ref)
             if local is not None:
                 papers.append(local)
+            elif self.uses_arxiv:
+                if ref.kind == "arxiv":
+                    arxiv_ids.append((raw, ref.value))
+                else:
+                    notices.append(f"Seed {raw!r} needs Semantic Scholar to look up; with the arXiv provider, "
+                                   "give seeds as arXiv IDs.")
             else:
                 to_fetch.append((raw, ref.s2_id))
+        if arxiv_ids:
+            try:
+                found = self.arxiv.get_papers([value for _, value in arxiv_ids])
+            except ApiError as exc:
+                notices.append(f"Could not fetch seed papers from arXiv: {exc}")
+                found = [None] * len(arxiv_ids)
+            for (raw, _), paper in zip(arxiv_ids, found):
+                if paper is None:
+                    notices.append(f"Seed {raw!r} was not found on arXiv.")
+                    continue
+                self.store.upsert_paper(paper, "arxiv.id")
+                papers.append(paper)
         if to_fetch:
             try:
                 fetched = self.client.get_papers([s2_id for _, s2_id in to_fetch])
-            except S2Error as exc:
+            except ApiError as exc:
                 notices.append(f"Could not fetch seed papers: {exc}")
                 fetched = [None] * len(to_fetch)
             for (raw, _), paper in zip(to_fetch, fetched):
@@ -415,7 +514,7 @@ class Paperscout:
                 item.assessment.model_dump_json(),
                 snapshot,
             )
-        self.store.finish_run(run_id, self.client.sources_used, notices)
+        self.store.finish_run(run_id, self.client.sources_used + self.arxiv.sources_used, notices)
         return run_id
 
     # ================================================================== discovery
@@ -437,15 +536,33 @@ class Paperscout:
         notices: list[str],
     ) -> list[Candidate]:
         candidates: list[Candidate] = []
+        if self.uses_arxiv:
+            categories = ctx.profile.arxiv_categories if ctx.profile and ctx.use_profile else []
+            try:
+                hits = self.arxiv.search_papers(query, max_results=pool, window=window, categories=categories)
+            except ValueError as exc:
+                raise ServiceError(f"Cannot build an arXiv query: {exc}.") from None
+            except ApiError as exc:
+                raise ServiceError(f"arXiv search failed: {exc}") from None
+            for rank, paper in hits:
+                candidates.append(Candidate(paper=paper, provenance=[Provenance(source="arxiv.search", query=query,
+                                                                                rank=rank)]))
+            if categories:
+                notices.append(f"arXiv search limited to your profile's categories: {', '.join(categories)}.")
+            if ctx.positive_seeds:
+                notices.append("Seed papers were used for text similarity only; seed-based recommendations "
+                               "need Semantic Scholar.")
+            return candidates
         date_filter = f"{window[0].isoformat()}:{window[1].isoformat()}" if window else None
         try:
             for rank, paper in self.client.search_papers(query, max_results=pool, publication_date_or_year=date_filter):
                 candidates.append(Candidate(paper=paper, provenance=[Provenance(source="s2.search", query=query,
                                                                                 rank=rank)]))
-        except S2Error as exc:
+        except ApiError as exc:
             raise ServiceError(f"Semantic Scholar search failed: {exc}") from None
-        positive = [p.paper_id for p in ctx.positive_seeds][:10]
-        negative = [p.paper_id for p in ctx.negative_seeds][:10]
+        # Recommendations take Semantic Scholar paper IDs; papers known only from arXiv are skipped.
+        positive = [p.paper_id for p in ctx.positive_seeds if S2_PAPER_ID.match(p.paper_id)][:10]
+        negative = [p.paper_id for p in ctx.negative_seeds if S2_PAPER_ID.match(p.paper_id)][:10]
         if positive:
             try:
                 recs = self.client.recommend(positive, negative, limit=min(pool, 60))
@@ -453,17 +570,17 @@ class Paperscout:
                 for rank, paper in enumerate(recs, 1):
                     candidates.append(Candidate(paper=paper, provenance=[Provenance(
                         source="s2.recommendations", seed=seed_label, rank=rank)]))
-            except S2Error as exc:
+            except ApiError as exc:
                 notices.append(f"Recommendations unavailable ({exc}); using search results only.")
         return candidates
 
     def _enrich_missing_abstracts(self, candidates: list[Candidate], notices: list[str]) -> None:
-        missing = [c for c in candidates if not c.paper.abstract][:100]
-        if not missing:
+        missing = [c for c in candidates if not c.paper.abstract and S2_PAPER_ID.match(c.paper.paper_id)][:100]
+        if not missing or self.uses_arxiv:
             return
         try:
             detailed = self.client.get_papers([c.paper.paper_id for c in missing])
-        except S2Error as exc:
+        except ApiError as exc:
             notices.append(f"Could not fetch TLDRs for papers without abstracts: {exc}")
             return
         for cand, paper in zip(missing, detailed):
@@ -508,13 +625,16 @@ class Paperscout:
         return kept, excluded, year_only
 
     def _prerequisites(self, ranked: list[RankedPaper], notices: list[str], k: int = 3) -> list[Candidate]:
-        top = [r for r in ranked if r.assessment.priority in (Priority.p1, Priority.p2)][:k]
+        if self.uses_arxiv:
+            return []
+        top = [r for r in ranked if r.assessment.priority in (Priority.p1, Priority.p2)
+               and S2_PAPER_ID.match(r.paper.paper_id)][:k]
         counts: dict[str, int] = {}
         papers: dict[str, Paper] = {}
         for item in top:
             try:
                 refs = self.client.references(item.paper.paper_id, limit=200)
-            except S2Error as exc:
+            except ApiError as exc:
                 notices.append(f"Could not fetch references for prerequisite detection: {exc}")
                 continue
             for ref in refs:
@@ -541,7 +661,9 @@ class Paperscout:
         balanced: bool,
     ) -> RankingReport:
         notices: list[str] = []
-        if not self.settings.s2_api_key:
+        if self.uses_arxiv:
+            notices.append(ARXIV_LIMITS)
+        elif not self.settings.s2_api_key:
             notices.append("No S2_API_KEY configured: requests used Semantic Scholar's shared unauthenticated pool, "
                            "which is often throttled.")
         folder = self.get_folder(folder_ref) if folder_ref else None
@@ -564,6 +686,7 @@ class Paperscout:
         pool = min(100, max(limit * 4, 40))
         raw = self._retrieve(query, ctx, pool, window, notices)
         candidates, duplicates = deduplicate(raw)
+        self._canonicalize(candidates)
         excluded: list[ExcludedPaper] = []
         date_window = None
         if window:
@@ -572,8 +695,7 @@ class Paperscout:
             date_window = {
                 "since": window[0].isoformat(),
                 "until": window[1].isoformat(),
-                "basis": "Semantic Scholar publicationDate, often the first public version (e.g. arXiv v1); "
-                         "indexing date is not used",
+                "basis": DATE_BASIS[self.provider],
             }
             if year_only:
                 notices.append(f"{year_only} paper(s) have only a publication year; kept but flagged as incomplete dates.")
@@ -615,7 +737,7 @@ class Paperscout:
             ranking_version=self.config.version,
             profile_name=profile.name if profile else None,
             profile_mode=mode,
-            source=S2_SOURCE_LABEL,
+            source=SOURCE_LABELS[self.provider],
             query=query,
             date_window=date_window,
             notices=notices,
@@ -627,8 +749,7 @@ class Paperscout:
                 "ranked": len(ranked),
                 "below_threshold": below,
                 "shown": len(selected),
-                "api_calls": self.client.network_calls,
-                "cache_hits": self.client.cache_hits,
+                **self.api_stats(),
             },
         )
 
@@ -755,7 +876,7 @@ class Paperscout:
             notices=notices,
             items=items,
             excluded=excluded,
-            stats={"papers_ranked": len(ranked), "shown": len(items), "api_calls": self.client.network_calls},
+            stats={"papers_ranked": len(ranked), "shown": len(items), **self.api_stats()},
         )
 
     def rank_all(
@@ -971,12 +1092,35 @@ class Paperscout:
         fmt, entries = read_entries(path)
         id_entries = [e for e in entries if e.ref and not e.ref.is_title]
         title_entries = [e for e in entries if e.ref and e.ref.is_title]
+        arxiv_entries: list[ImportEntry] = []
+        if self.uses_arxiv:
+            # arXiv can look up arXiv IDs; anything else falls back to the entry's title.
+            arxiv_entries = [e for e in id_entries if e.ref.kind == "arxiv"]
+            for entry in id_entries:
+                if entry.ref.kind != "arxiv" and entry.title:
+                    title_entries.append(ImportEntry(PaperRef("title", entry.title, entry.raw), entry.title,
+                                                     entry.year, entry.raw))
+            id_entries = []
         resolved: list[tuple[ImportEntry, Paper]] = []
         problems: list[dict[str, str]] = [{"entry": e.raw, "problem": e.error or "unparseable"} for e in entries if e.ref is None]
+        if arxiv_entries:
+            try:
+                found = self.arxiv.get_papers([e.ref.value for e in arxiv_entries])
+            except ApiError as exc:
+                raise ServiceError(f"arXiv lookup failed: {exc}") from None
+            for entry, paper in zip(arxiv_entries, found):
+                if paper is None:
+                    problems.append({"entry": entry.raw, "problem": f"arXiv:{entry.ref.value} not found on arXiv"})
+                else:
+                    resolved.append((entry, paper))
+        if self.uses_arxiv:
+            skipped = [e for e in entries if e.ref and not e.ref.is_title and e.ref.kind != "arxiv" and not e.title]
+            problems += [{"entry": e.raw, "problem": "needs Semantic Scholar (no arXiv ID or title to search)"}
+                         for e in skipped]
         if id_entries:
             try:
                 papers = self.client.get_papers([e.ref.s2_id for e in id_entries])
-            except S2Error as exc:
+            except ApiError as exc:
                 raise ServiceError(f"Semantic Scholar lookup failed: {exc}") from None
             for entry, paper in zip(id_entries, papers):
                 if paper is None:
@@ -992,6 +1136,9 @@ class Paperscout:
         if len(title_entries) > max_titles:
             problems.append({"entry": f"{len(title_entries) - max_titles} more title-only entries",
                              "problem": f"skipped (max {max_titles} title lookups per import to respect rate limits)"})
+        candidates = [Candidate(paper=paper) for _, paper in resolved]
+        self._canonicalize(candidates)
+        resolved = [(entry, cand.paper) for (entry, _), cand in zip(resolved, candidates)]
         added, unchanged, marked = [], [], 0
         profile = self.store.active_profile()
         latest = self.store.latest_feedback([p.paper_id for _, p in resolved], profile.id if profile else None)

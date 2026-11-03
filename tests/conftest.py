@@ -17,6 +17,7 @@ import pytest
 
 from paperscout.config import Settings
 from paperscout.models import ResearchProfile
+from paperscout.arxiv.client import ArxivClient
 from paperscout.s2.client import SemanticScholarClient
 from paperscout.service import Paperscout
 from paperscout.store.db import Store, connect
@@ -184,6 +185,94 @@ class FakeS2:
         return sum(1 for c in self.calls if fragment in c.url.path)
 
 
+# ----------------------------------------------------------------------------- fake arXiv API (SYNTHETIC entries)
+
+ARXIV_ENTRIES = [
+    # Same arXiv ID as PAPERS[1], to test that one paper seen through two providers stays one record.
+    {"id": "2609.00001", "title": "Text-Guided Editing of 3D Gaussian Splatting Scenes",
+     "summary": "We propose a text-guided method for editing 3D Gaussian splatting scenes while preserving the "
+                "background of the scene.", "published": "2026-09-15", "cats": ["cs.CV"]},
+    {"id": "2610.11111", "title": "Multi-View Consistent Gaussian Scene Editing",
+     "summary": "Multi-view consistent editing of Gaussian splatting scenes from text instructions with diffusion "
+                "guidance.", "published": "2026-10-10", "cats": ["cs.CV", "cs.GR"],
+     "doi": "10.1234/synthetic.mvedit", "journal_ref": "Synthetic Conference 2026"},
+    {"id": "2610.22222", "title": "Diffusion Priors for Medical Volume Segmentation",
+     "summary": "Segmentation of CT volumes with diffusion priors.", "published": "2026-10-05", "cats": ["eess.IV"]},
+    {"id": "2106.33333", "title": "An Older Gaussian Scene Representation Study",
+     "summary": "A study of Gaussian scene representations for editing and rendering.", "published": "2021-06-01",
+     "cats": ["cs.CV"]},
+]
+
+
+def atom_entry(e: dict) -> str:
+    cats = "".join(f'<category term="{c}" scheme="http://arxiv.org/schemas/atom"/>' for c in e["cats"])
+    extra = ""
+    if e.get("doi"):
+        extra += f"<arxiv:doi>{e['doi']}</arxiv:doi>"
+    if e.get("journal_ref"):
+        extra += f"<arxiv:journal_ref>{e['journal_ref']}</arxiv:journal_ref>"
+    return (
+        f"<entry><id>http://arxiv.org/abs/{e['id']}v2</id><updated>{e['published']}T10:00:00Z</updated>"
+        f"<published>{e['published']}T10:00:00Z</published>"
+        f"<title>[SYNTHETIC] {e['title']}</title><summary>  {e['summary']}\n </summary>"
+        f"<author><name>Ada Example</name></author><author><name>Bo Sample</name></author>"
+        f'<link href="http://arxiv.org/abs/{e["id"]}v2" rel="alternate" type="text/html"/>'
+        f'<link title="pdf" href="http://arxiv.org/pdf/{e["id"]}v2" rel="related" type="application/pdf"/>'
+        f'<arxiv:primary_category term="{e["cats"][0]}" scheme="http://arxiv.org/schemas/atom"/>{cats}{extra}</entry>'
+    )
+
+
+def atom_feed(entries: list[dict]) -> str:
+    return (
+        '<?xml version="1.0" encoding="UTF-8"?><feed xmlns="http://www.w3.org/2005/Atom" '
+        'xmlns:opensearch="http://a9.com/-/spec/opensearch/1.1/" xmlns:arxiv="http://arxiv.org/schemas/atom">'
+        f"<title>ArXiv Query</title><opensearch:totalResults>{len(entries)}</opensearch:totalResults>"
+        + "".join(atom_entry(e) for e in entries) + "</feed>"
+    )
+
+
+class FakeArxiv:
+    """Implements the subset of the arXiv query API that paperscout uses."""
+
+    def __init__(self):
+        self.calls: list[httpx.Request] = []
+        self.queries: list[str] = []
+
+    def __call__(self, request: httpx.Request) -> httpx.Response:
+        self.calls.append(request)
+        params = request.url.params
+        if params.get("id_list"):
+            ids = params["id_list"].split(",")
+            found = [e for e in ARXIV_ENTRIES if e["id"] in ids]
+            return httpx.Response(200, text=atom_feed(found))
+        query = params.get("search_query", "")
+        self.queries.append(query)
+        cats = re.findall(r"cat:([\w.\-]+)", query)
+        window = re.search(r"submittedDate:\[(\d{8})\d{4} TO (\d{8})\d{4}\]", query)
+        title_terms = re.findall(r"ti:(\w+)", query)
+        terms = re.findall(r"all:(\w+)", query)
+        any_mode = " OR all:" in query
+        out = []
+        for e in ARXIV_ENTRIES:
+            full_title = f"[SYNTHETIC] {e['title']}".lower()
+            text = f"{full_title} {e['summary']}".lower()
+            if title_terms and not all(t in full_title for t in title_terms):
+                continue
+            if terms and not (any(t in text for t in terms) if any_mode else all(t in text for t in terms)):
+                continue
+            if cats and not set(cats) & set(e["cats"]):
+                continue
+            if window and not (window.group(1) <= e["published"].replace("-", "") <= window.group(2)):
+                continue
+            out.append(e)
+        return httpx.Response(200, text=atom_feed(out))
+
+
+@pytest.fixture
+def fake_arxiv() -> FakeArxiv:
+    return FakeArxiv()
+
+
 @pytest.fixture
 def fake_s2() -> FakeS2:
     return FakeS2()
@@ -191,7 +280,8 @@ def fake_s2() -> FakeS2:
 
 @pytest.fixture
 def settings(tmp_path: Path) -> Settings:
-    return Settings(home=tmp_path / "home", s2_min_interval=0.0, s2_max_retries=3, s2_max_backoff=30.0)
+    return Settings(home=tmp_path / "home", s2_min_interval=0.0, s2_max_retries=3, s2_max_backoff=30.0,
+                    provider="semantic-scholar")
 
 
 @pytest.fixture
@@ -200,11 +290,12 @@ def sleeps() -> list[float]:
 
 
 @pytest.fixture
-def svc(settings, fake_s2, sleeps) -> Paperscout:
+def svc(settings, fake_s2, fake_arxiv, sleeps) -> Paperscout:
     store = Store(connect(settings.db_path))
     client = SemanticScholarClient(settings, cache=store, transport=httpx.MockTransport(fake_s2),
                                    sleep=sleeps.append)
-    service = Paperscout(settings, store, client, today=TODAY)
+    arxiv = ArxivClient(settings, cache=store, transport=httpx.MockTransport(fake_arxiv), sleep=sleeps.append)
+    service = Paperscout(settings, store, client, today=TODAY, arxiv=arxiv)
     yield service
     service.close()
 

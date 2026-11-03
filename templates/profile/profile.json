@@ -3,16 +3,30 @@
   "field": "[YOUR_FIELD]",
   "research_question": "[ONE_SENTENCE_RESEARCH_QUESTION]",
   "project_description": "[PROJECT_DESCRIPTION]",
-  "desired_outcomes": ["[OUTCOME_1]"],
-  "keywords": ["[CORE_TOPIC_1]", "[CORE_TOPIC_2]"],
+  "desired_outcomes": [
+    "[OUTCOME_1]"
+  ],
+  "keywords": [
+    "[CORE_TOPIC_1]",
+    "[CORE_TOPIC_2]"
+  ],
   "positive_seeds": [],
   "negative_seeds": [],
-  "inclusion_criteria": ["[INCLUSION_CRITERION]"],
-  "exclusion_criteria": ["[OUT_OF_SCOPE_TOPIC]"],
+  "inclusion_criteria": [
+    "[INCLUSION_CRITERION]"
+  ],
+  "exclusion_criteria": [
+    "[OUT_OF_SCOPE_TOPIC]"
+  ],
   "recency_preference": "moderate",
   "include_foundational": true,
   "knowledge": [
-    {"topic": "[TOPIC]", "level": "familiar", "evidence": "[EVIDENCE]"}
+    {
+      "topic": "[TOPIC]",
+      "level": "familiar",
+      "evidence": "[EVIDENCE]"
+    }
   ],
+  "arxiv_categories": [],
   "weekly_reading_hours": 5
 }

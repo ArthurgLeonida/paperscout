@@ -5,13 +5,8 @@ import httpx
 import pytest
 
 from paperscout.s2 import client as client_mod
-from paperscout.s2.client import (
-    S2NotFound,
-    S2RateLimited,
-    SemanticScholarClient,
-    parse_retry_after,
-    search_query_text,
-)
+from paperscout.http import ApiNotFound, ApiRateLimited, parse_retry_after
+from paperscout.s2.client import SemanticScholarClient, search_query_text
 from paperscout.store.db import Store, connect
 
 from .conftest import pid
@@ -43,7 +38,7 @@ def test_backoff_without_retry_after(settings, fake_s2, sleeps):
 def test_rate_limit_exhausted_raises_clear_error(settings, sleeps):
     handler = lambda request: httpx.Response(429, json={"message": "Too Many Requests"})  # noqa: E731
     client = make_client(settings, handler, sleeps)
-    with pytest.raises(S2RateLimited, match="S2_API_KEY"):
+    with pytest.raises(ApiRateLimited, match="S2_API_KEY"):
         client.search("anything")
     assert len(sleeps) == settings.s2_max_retries
 
@@ -51,7 +46,7 @@ def test_rate_limit_exhausted_raises_clear_error(settings, sleeps):
 def test_retry_after_beyond_cap_fails_fast(settings, sleeps):
     handler = lambda request: httpx.Response(429, headers={"Retry-After": "600"})  # noqa: E731
     client = make_client(settings, handler, sleeps)
-    with pytest.raises(S2RateLimited, match="600s"):
+    with pytest.raises(ApiRateLimited, match="600s"):
         client.search("anything")
     assert sleeps == []
 
@@ -79,7 +74,7 @@ def test_transport_errors_are_retried(settings, fake_s2, sleeps):
 
 def test_not_found_and_title_match_404(settings, fake_s2, sleeps):
     client = make_client(settings, fake_s2, sleeps)
-    with pytest.raises(S2NotFound):
+    with pytest.raises(ApiNotFound):
         client.get_paper("DOI:10.9999/missing")
     assert client.match_title("no such paper title anywhere") is None
 

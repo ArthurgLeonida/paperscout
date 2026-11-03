@@ -27,6 +27,10 @@ They aren't combined. Output must not be described as "AI-ranked". Whether store
 
 The **ordering score** combines the known dimensions with configurable weights (`src/paperscout/ranking/heuristic-v2.toml`). Unknown dimensions are **dropped and the weights renormalised** rather than counted as zero, and the uncertainty is listed. The score is shown only with `--verbose`, labelled *"heuristic for ordering only, not a probability or quality score"*. Users see bands (high, medium, low, unknown) and priorities (P1, P2, P3, skip).
 
+## When the source has no citation data (arXiv)
+
+arXiv provides no citation counts, so a paper can't be labelled *foundational* from citations. It gets a time-based role (recent method or method) and the uncertainty *"Citation count unknown (the source provides none), so foundational status was not inferred."* Shared prerequisites (reference lists) and seed recommendations are also unavailable, so `/discover` balances only surveys. Unknown stays unknown: a missing citation count is never treated as zero.
+
 ## Deliberate non-signals
 
 - **Citation counts never raise priority.** They're used only to label a paper's role as foundational. Recent papers with few citations get an explicit note that this wasn't penalised.
