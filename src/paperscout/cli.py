@@ -60,9 +60,14 @@ def _require_text(p: Parsed, what: str) -> str:
 # --------------------------------------------------------------------------- handlers
 
 
+def _require_topic_or_profile(svc: Paperscout, p: Parsed, command: str) -> None:
+    """No topic is fine when a profile exists: its saved searches (or research question) are used."""
+    if not p.text and not p.get("folder") and svc.resolve_profile(p.get("profile"))[0] is None:
+        raise UsageError(f"Give a topic or --folder, or build a profile with /setup. Usage: {SPECS[command].usage}")
+
+
 def h_recent(svc: Paperscout, p: Parsed, out: Output) -> None:
-    if not p.text and not p.get("folder"):
-        raise UsageError(f"Give a topic or --folder. Usage: {SPECS['recent'].usage}")
+    _require_topic_or_profile(svc, p, "recent")
     report = svc.recent(p.text or None, days=p.get("days"), since=p.get("since"), until=p.get("until"),
                         folder=p.get("folder"), profile=p.get("profile"), limit=p.get("limit"),
                         include_read=p.get("include_read"), seeds=p.get("seed"))
@@ -70,8 +75,7 @@ def h_recent(svc: Paperscout, p: Parsed, out: Output) -> None:
 
 
 def h_discover(svc: Paperscout, p: Parsed, out: Output) -> None:
-    if not p.text and not p.get("folder"):
-        raise UsageError(f"Give a topic or --folder. Usage: {SPECS['discover'].usage}")
+    _require_topic_or_profile(svc, p, "discover")
     report = svc.discover(p.text or None, folder=p.get("folder"), profile=p.get("profile"), limit=p.get("limit"),
                           include_read=p.get("include_read"), seeds=p.get("seed"))
     _emit_report(svc, report, p, out)

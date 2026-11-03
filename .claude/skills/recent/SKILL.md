@@ -1,7 +1,7 @@
 ---
 name: recent
 description: Find and prioritise recently published papers on a research topic using paperscout (arXiv without a Semantic Scholar key, Semantic Scholar with one; ranked against the active research profile). Use when the user asks for recent or new papers on a topic.
-argument-hint: <topic> [--days N | --since YYYY-MM-DD] [--until YYYY-MM-DD] [--folder NAME] [--profile NAME] [--limit N] [--include-read] [--provider arxiv|semantic-scholar] [--verbose]
+argument-hint: '[topic] [--days N | --since YYYY-MM-DD] [--until YYYY-MM-DD] [--folder NAME] [--profile NAME] [--limit N] [--include-read] [--provider arxiv|semantic-scholar] [--verbose]'
 allowed-tools: Bash(uv run -q paperscout *)
 ---
 
@@ -21,7 +21,7 @@ Pass the raw arguments **unchanged** as one single-quoted string. Escape any `'`
 uv run -q paperscout slash recent --args '<raw arguments>'
 ```
 
-Do not add, drop, or reinterpret options: the CLI owns argument parsing, defaults (90-day window, 10 papers), and validation. If it prints `Usage error:` or `Error:`, show that message and stop. If it reports rate limiting, show the diagnostics line and say no results were retrieved. Suggest retrying later, or requesting an API key and putting it in `.env`. Don't promise that a key will be approved or what its limits will be; Semantic Scholar decides both. Never present results that the CLI didn't return.
+With no topic, the CLI runs the saved searches in the researcher's profile and merges the results. Say which searches ran (they're in the report's notices and query line). Do not add, drop, or reinterpret options: the CLI owns argument parsing, defaults (90-day window, 10 papers), and validation. If it prints `Usage error:` or `Error:`, show that message and stop. If it reports rate limiting, show the diagnostics line and say no results were retrieved. Suggest retrying later, or requesting an API key and putting it in `.env`. Don't promise that a key will be approved or what its limits will be; Semantic Scholar decides both. Never present results that the CLI didn't return.
 
 ## 2. Present the result concisely
 

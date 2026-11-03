@@ -107,7 +107,7 @@ def test_profile_json_template_matches_the_model():
 def test_prose_templates_have_the_sections_setup_relies_on():
     required = {
         "01-researcher-background.md": ["## Knowledge Map", "## Own Publications and Preprints", "## Tools and Methods"],
-        "02-research-goals.md": ["## Current Project", "## Interests", "## Seed Papers"],
+        "02-research-goals.md": ["## Current Project", "## Interests", "## Seed Papers", "## Saved Searches"],
         "03-reading-style.md": ["## Time Budget", "## How You Read and Learn"],
         "04-recommendation-criteria.md": ["## Reading Roles, Defined for Your Project", "## Calibration From Feedback"],
     }

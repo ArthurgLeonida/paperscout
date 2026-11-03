@@ -183,12 +183,13 @@ class ArxivClient(ApiClient):
         max_results: int = 50,
         window: tuple[date, date] | None = None,
         categories: Iterable[str] = (),
+        widen: bool = True,
     ) -> list[tuple[int, Paper]]:
-        """Relevance search; if requiring every term finds too little, widen once to any term."""
+        """Relevance search; if requiring every term finds too little, widen once to any term (when allowed)."""
         cats = list(categories)
         _, papers = self.query(search_query=build_search_query(text, window=window, categories=cats),
                                max_results=max_results)
-        if len(papers) < min(max_results, 10) and len(query_terms(text)) > 1:
+        if widen and len(papers) < min(max_results, 10) and len(query_terms(text)) > 1:
             _, wider = self.query(search_query=build_search_query(text, mode="any", window=window, categories=cats),
                                   max_results=max_results)
             seen = {p.paper_id for p in papers}

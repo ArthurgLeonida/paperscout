@@ -232,22 +232,24 @@ SPECS: dict[str, CommandSpec] = {
     for s in [
         CommandSpec(
             "recent", "recent", "Find and prioritise recently published papers on a topic.",
-            "recent <topic> [--days N | --since YYYY-MM-DD] [--until YYYY-MM-DD] [--folder NAME] [--profile NAME] "
+            "recent [<topic>] [--days N | --since YYYY-MM-DD] [--until YYYY-MM-DD] [--folder NAME] [--profile NAME] "
             "[--limit N] [--include-read] [--seed ID]...",
             (Opt("--days", "int", "window length in days (default 90, configurable)", minimum=1, maximum=3650),
              Opt("--since", "date", "window start (YYYY-MM-DD)"), Opt("--until", "date", "window end (default today)"),
              FOLDER, PROFILE, LIMIT_RECENT, INCLUDE_READ, SEED, PROVIDER, VERBOSE, JSON),
-            ("/recent text-guided 3D Gaussian scene editing", "/recent medical image segmentation --days 90",
+            ("/recent text-guided 3D Gaussian scene editing", "/recent   (no topic: your profile's saved searches)",
+             "/recent medical image segmentation --days 90",
              '/recent diffusion models --folder "Diffusion Models" --limit 10'),
             ("'Recent' uses Semantic Scholar's publicationDate (often arXiv v1), never the indexing date.",
              "Papers with only a publication year are kept but flagged."),
         ),
         CommandSpec(
             "discover", "discover", "Discover useful papers (foundational, recent, surveys) without a date limit.",
-            "discover <topic-or-question> [--folder NAME] [--profile NAME] [--limit N] [--include-read] [--seed ID]...",
+            "discover [<topic-or-question>] [--folder NAME] [--profile NAME] [--limit N] [--include-read] [--seed ID]...",
             (FOLDER, PROFILE, LIMIT_DISCOVER, INCLUDE_READ, SEED, PROVIDER, VERBOSE, JSON),
             ("/discover background preservation in 3D scene editing", '/discover --folder "3D Reconstruction"'),
-            ("Fetches the reference lists of the top results to surface shared prerequisites.",),
+            ("Fetches the reference lists of the top results to surface shared prerequisites (Semantic Scholar only).",
+             "Without a topic, runs the saved searches in your profile and merges the results."),
         ),
         CommandSpec(
             "rank", "rank", "Rank papers already in your local research folders.",

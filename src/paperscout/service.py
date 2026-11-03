@@ -527,39 +527,61 @@ class Paperscout:
             raise ServiceError(f"--since ({start}) is after --until ({end}).")
         return start, end
 
+    def _search(
+        self, query: str, ctx: RankingContext, pool: int, window: tuple[date, date] | None, widen: bool = True
+    ) -> list[Candidate]:
+        """One search with the active provider; provenance records the query and rank."""
+        if self.uses_arxiv:
+            categories = ctx.profile.arxiv_categories if ctx.profile and ctx.use_profile else []
+            try:
+                hits = self.arxiv.search_papers(query, max_results=pool, window=window, categories=categories,
+                                                widen=widen)
+            except ValueError as exc:
+                raise ServiceError(f"Cannot build an arXiv query: {exc}.") from None
+            except ApiError as exc:
+                raise ServiceError(f"arXiv search failed: {exc}") from None
+            source = "arxiv.search"
+        else:
+            date_filter = f"{window[0].isoformat()}:{window[1].isoformat()}" if window else None
+            try:
+                hits = self.client.search_papers(query, max_results=pool, publication_date_or_year=date_filter)
+            except ApiError as exc:
+                raise ServiceError(f"Semantic Scholar search failed: {exc}") from None
+            source = "s2.search"
+        return [Candidate(paper=paper, provenance=[Provenance(source=source, query=query, rank=rank)])
+                for rank, paper in hits]
+
     def _retrieve(
         self,
-        query: str,
+        queries: list[str],
         ctx: RankingContext,
         pool: int,
         window: tuple[date, date] | None,
         notices: list[str],
     ) -> list[Candidate]:
+        """Run one search, or several saved searches, then add recommendations where the provider has them."""
         candidates: list[Candidate] = []
+        several = len(queries) > 1
+        failures: list[str] = []
+        for query in queries:
+            try:
+                # Widening a sparse search costs an extra request; skip it when several searches share the budget.
+                candidates += self._search(query, ctx, pool, window, widen=not several)
+            except ServiceError as exc:
+                if not several:
+                    raise
+                failures.append(str(exc))
+                notices.append(f"Saved search '{query}' was skipped: {exc}")
+        if several and len(failures) == len(queries):
+            raise ServiceError(f"All {len(queries)} saved searches failed. First error: {failures[0]}")
         if self.uses_arxiv:
             categories = ctx.profile.arxiv_categories if ctx.profile and ctx.use_profile else []
-            try:
-                hits = self.arxiv.search_papers(query, max_results=pool, window=window, categories=categories)
-            except ValueError as exc:
-                raise ServiceError(f"Cannot build an arXiv query: {exc}.") from None
-            except ApiError as exc:
-                raise ServiceError(f"arXiv search failed: {exc}") from None
-            for rank, paper in hits:
-                candidates.append(Candidate(paper=paper, provenance=[Provenance(source="arxiv.search", query=query,
-                                                                                rank=rank)]))
             if categories:
                 notices.append(f"arXiv search limited to your profile's categories: {', '.join(categories)}.")
             if ctx.positive_seeds:
                 notices.append("Seed papers were used for text similarity only; seed-based recommendations "
                                "need Semantic Scholar.")
             return candidates
-        date_filter = f"{window[0].isoformat()}:{window[1].isoformat()}" if window else None
-        try:
-            for rank, paper in self.client.search_papers(query, max_results=pool, publication_date_or_year=date_filter):
-                candidates.append(Candidate(paper=paper, provenance=[Provenance(source="s2.search", query=query,
-                                                                                rank=rank)]))
-        except ApiError as exc:
-            raise ServiceError(f"Semantic Scholar search failed: {exc}") from None
         # Recommendations take Semantic Scholar paper IDs; papers known only from arXiv are skipped.
         positive = [p.paper_id for p in ctx.positive_seeds if S2_PAPER_ID.match(p.paper_id)][:10]
         negative = [p.paper_id for p in ctx.negative_seeds if S2_PAPER_ID.match(p.paper_id)][:10]
@@ -674,17 +696,34 @@ class Paperscout:
             except NotFound:
                 pass
         query = topic or (folder and " ".join([folder.name, folder.description]).strip()) or None
-        if not query and profile and profile.research_question:
-            query = profile.research_question
-            notices.append(f"No topic given; used the research question of profile '{profile.name}'.")
-        if not query:
-            raise ServiceError("Give a topic (e.g. `recent text-guided 3D scene editing`) or --folder.")
-        criteria = query if topic else (folder.criteria_text() if folder else query)
+        saved = list(profile.search_queries) if (profile and not query) else []
+        if saved:
+            queries = saved
+            query = "; ".join(saved)
+            criteria = "\n".join([*saved, *profile.keywords, profile.research_question]).strip()
+            notices.append(f"No topic given: ran the {len(saved)} saved searches of profile '{profile.name}' "
+                           "and merged the results.")
+        else:
+            if not query and profile and profile.research_question:
+                query = profile.research_question
+                notices.append(
+                    f"No topic given and profile '{profile.name}' has no saved searches, so its research question "
+                    "was used as the search; that tends to give broad results. Add saved searches with "
+                    "`/setup --section searches`."
+                )
+            if not query:
+                raise ServiceError("Give a topic (e.g. `recent text-guided 3D scene editing`), --folder, or save "
+                                   "searches in your profile with `/setup --section searches`.")
+            queries = [query]
+            criteria = query if topic else (folder.criteria_text() if folder else query)
         use_profile, mode = self._profile_mode(criteria, profile, explicit, notices, "topic")
+        if saved:
+            mode = "saved searches + profile" if use_profile else mode
         ctx = self._build_context(criteria, profile, use_profile, folder, seeds, notices)
 
         pool = min(100, max(limit * 4, 40))
-        raw = self._retrieve(query, ctx, pool, window, notices)
+        per_query = pool if len(queries) == 1 else max(15, min(40, pool // len(queries) + 10))
+        raw = self._retrieve(queries, ctx, per_query, window, notices)
         candidates, duplicates = deduplicate(raw)
         self._canonicalize(candidates)
         excluded: list[ExcludedPaper] = []
@@ -729,7 +768,8 @@ class Paperscout:
             self.store.update_folder(folder)
         if not ranked:
             notices.append("No candidates were found. Try broader terms" + (" or a wider date window." if window else "."))
-        heading = (f"Recent papers: {query}" if kind == "recent" else f"Discovery: {query}")
+        subject = f"your saved searches ({profile.name})" if saved else query
+        heading = (f"Recent papers: {subject}" if kind == "recent" else f"Discovery: {subject}")
         return RankingReport(
             kind=kind,
             heading=heading,

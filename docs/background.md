@@ -17,9 +17,11 @@ The tracked templates live in `templates/`. Your filled-in copies are never comm
 
 ## Three ways in
 
-1. **Documents folder.** Put a CV, your own papers, a project description and reading-history exports in `documents/` (layout in `documents/README.md`). `/setup` reads them, cross-checks dates and titles, and proposes additions and conflicts separately before writing anything.
+1. **Documents folder.** Put a CV, an optional LinkedIn export, your own papers and thesis, a project description or manuscript in preparation, and reading-history exports in `documents/` (layout in `documents/README.md`). `/setup` reads them, cross-checks dates and titles, and proposes additions and conflicts separately before writing anything.
 2. **Single CV or paste.** It extracts what the document supports and asks follow-up questions for the rest.
 3. **Interview.** A conversation, section by section: background, knowledge, goals, reading, criteria.
+
+`/setup` also saves 4–6 short **searches** (3–6 words each) covering your core interests, in `02-research-goals.md` and in `profile.json` (`search_queries`, at most 8). `/recent` and `/discover` with no topic run each saved search with the active provider (one request each) and merge the results. Provenance records which search found each paper, and the merged list is ranked against your whole profile. If one search fails, the others still run and the report says which one was skipped. A whole research question makes a poor search query (too many words to match together, or too broad when loosened), which is why the searches are saved separately.
 
 All three paths end the same way: prose files, then `profile.json`, then `paperscout profile sync`, then `CLAUDE.local.md`, and optionally a reading-history import. Re-running is safe: it reads before writing, changes nothing you didn't confirm, and labels anything inferred (for example *[inferred from cv/: confirm]*).
 

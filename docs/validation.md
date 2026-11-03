@@ -5,6 +5,7 @@ Last updated **2026-11-02**. "Live" means against the real Semantic Scholar API.
 | Capability | Implemented | Mocked tests | Live API | Real slash command |
 |---|---|---|---|---|
 | **arXiv provider: lookup, search, dedup, save, rank, feedback, reading plan, assessment save/reopen** | yes | yes (22 tests in `test_arxiv.py`) | **pass** (2026-11-02): isolated smoke test, 8 steps passed and recommendations skipped (not offered by arXiv); about 4 requests paced ≥3 s; a rerun was served fully from cache | slash commands on arXiv: not yet run (your test) |
+| Saved searches (no-topic `/recent` and `/discover`) | yes | yes (8 tests in `test_saved_searches.py`) | **pass** (2026-11-03, arXiv, scratch database with a copy of a real profile): 5 searches in 6 requests, 90 candidates, 2 duplicates merged, 2 already-known papers excluded; the top 9 were all on-topic 3D editing papers. The same profile without saved searches (whole research question as the query) returned mostly off-topic papers | — |
 | Paper lookup (ID/URL → record) | yes | yes | **pass**: an arXiv URL resolved to the full 3DGS record (DOI, venue, date, abstract). Later lookups got 429 | — |
 | Semantic Scholar topic search `/paper/search` | yes | yes | **not verified**: 429 on every attempt | `/recent`: throttled, reported honestly, no invented results |
 | Title match, batch/TLDR enrichment | yes | yes | not verified | — |

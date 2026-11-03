@@ -52,7 +52,7 @@ uv run -q paperscout doctor               # shows data location and whether a ke
    Real environment variables take precedence over `.env`. The key is sent only as the `x-api-key` header and is never logged.
 2. **Open Claude Code in the repository folder** (CLI or VS Code). The project skills in `.claude/skills/` appear as slash commands.
 3. **Describe your research background with `/setup`.** This is what lets Claude understand you and recommend papers that suit you. `/setup` offers three ways in:
-   - **Documents.** Put your CV, your own papers, a project description and reading-history exports in `documents/` (see [documents/README.md](documents/README.md)). `/setup` reads them, cross-checks them, and proposes your profile.
+   - **Documents.** Put your CV, an optional LinkedIn export, your own papers and thesis, a project description or manuscript in preparation, and reading-history exports in `documents/` (see [documents/README.md](documents/README.md)). `/setup` reads them, cross-checks them, and proposes your profile.
    - **Single CV or paste.** Paste one document and answer follow-up questions.
    - **Interview.** Answer questions section by section.
 
@@ -66,7 +66,7 @@ uv run -q paperscout doctor               # shows data location and whether a ke
    | `04-recommendation-criteria.md` | What makes a paper a must-read *for you*; your meaning of foundation, baseline, candidate method, survey and peripheral |
    | `profile.json` | The machine-readable part the ranking uses, loaded with `paperscout profile sync` |
 
-   It also creates `CLAUDE.local.md`, which loads those files into every Claude Code session. `profile/`, `CLAUDE.local.md` and the contents of `documents/` are **git-ignored**, so your background never leaves your computer. Update parts later with `/setup --section knowledge` (or goals, reading, criteria, calibrate). How Claude and the ranking use the background is explained in [docs/background.md](docs/background.md).
+   It also creates `CLAUDE.local.md`, which loads those files into every Claude Code session. `profile/`, `CLAUDE.local.md` and the contents of `documents/` are **git-ignored**, so your background never leaves your computer. `/setup` also saves 4–6 short **searches** that cover your core interests, which `/recent` and `/discover` run when you give no topic. Update parts later with `/setup --section knowledge` (or goals, searches, reading, criteria, calibrate). How Claude and the ranking use the background is explained in [docs/background.md](docs/background.md).
 
 **Where data lives:** `%LOCALAPPDATA%\paperscout` on Windows, `~/.local/share/paperscout` elsewhere. That covers the database, cache, saved reports and note scaffolds. Override it with `PAPERSCOUT_HOME`.
 
@@ -84,8 +84,8 @@ uv run -q python scripts/live_smoke.py --budget 15    # lookup, search, recommen
 | Command | Purpose |
 |---|---|
 | `/setup [--section NAME]` | Build or update your private research background (documents, CV, or interview) |
-| `/recent <topic> [--days N \| --since D] [--until D] [--folder F] [--profile P] [--limit N] [--include-read]` | Recent papers (default window 90 days, configurable) |
-| `/discover <topic> [--folder F] [--profile P] [--limit N] [--seed ID]` | Balanced reading list: prerequisites, surveys, methods |
+| `/recent [topic] [--days N \| --since D] [--until D] [--folder F] [--profile P] [--limit N] [--include-read]` | Recent papers (default window 90 days, configurable); no topic = your saved searches |
+| `/discover [topic] [--folder F] [--profile P] [--limit N] [--seed ID]` | Balanced reading list: prerequisites, surveys, methods; no topic = your saved searches |
 | `/rank "<folder>" [--unread] [--new] [--imported]` · `/rank --all [--profile P]` | Rank local folders |
 | `/folders list \| show "F" \| create "F" \| propose <field>` | Manage local folders; proposals are previewed and need confirmation |
 | `/classify <DOI \| arXiv \| S2 id/URL \| title>` | Suggest folders; never changes anything without approval |
@@ -101,6 +101,15 @@ Multiword topics need no quotes: `/recent text-guided 3D Gaussian scene editing`
 The order of results comes from deterministic heuristic scores. Your knowledge map adjusts recommended reading depth, but never priority. Claude explains the results in terms of your background and doesn't change the stored order; stored Claude assessments are shown for reference only (see [docs/ranking.md](docs/ranking.md)).
 
 Feedback labels: `relevant`, `irrelevant`, `already_known`, `read_later`, `read_overview`, `understood`, `deep_study`, `implemented`, `not_useful`.
+
+## How to use it day to day
+
+You can ask in plain language ("find recent papers that could be baselines for my project", "I want to learn flow matching, where do I start?") and Claude picks the right command, or type the commands yourself.
+
+- **Papers for you:** `/recent` or `/discover` with no topic runs your saved searches, merges the results, and ranks them against your profile.
+- **A specific topic:** use 3–6 words, phrased like a paper title. `/discover multi-view consistent gaussian splatting editing` works far better than a whole research question.
+- **A field you want to learn:** give the field as the topic (`/discover flow matching`). If it differs from your project, the report says it's ranked by topic only. Mark the field `new` with `/setup --section knowledge` so background papers on it get a proper read, and use `/reading-plan --hours 3` for a study plan.
+- **The loop:** `/assess` a paper, `/add` it to a folder, `/rank` the folder, `/reading-plan --week`, `/note <paper> --pass first` for your tablet, and `/paper-feedback` so later results fit you better (`/setup --section calibrate` turns the feedback into criteria).
 
 ## The same commands from a terminal
 

@@ -28,6 +28,13 @@ similar work; negative seeds push away from it. -->
 - **Positive:** [PAPER_ID] - [WHY_IT_DEFINES_THE_DIRECTION]
 - **Negative:** [PAPER_ID] - [WHAT_IS_OFF_TARGET]
 
+## Saved Searches
+<!-- 3-8 short searches (3-6 words each, phrased like paper titles) that together cover the core ring.
+`/recent` and `/discover` without a topic run all of them and merge the results; each costs one API request.
+Copied into profile.json "search_queries". -->
+- [SEARCH_QUERY_1]
+- [SEARCH_QUERY_2]
+
 ## Inclusion and Exclusion Criteria
 - **Include:** [INCLUSION_CRITERION]
 - **Exclude:** [EXCLUSION_CRITERION]

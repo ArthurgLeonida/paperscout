@@ -118,8 +118,12 @@ def render(report: dict[str, Any]) -> str:
     if key["configured"]:
         lines.append(f"- S2_API_KEY: configured ({key['source']}); value not shown")
     else:
-        lines.append(f"- S2_API_KEY: not configured. Requests use the shared unauthenticated pool. "
-                     f"Request a key at {key['how_to_get']} and put it in .env (see README).")
+        if s["provider"].startswith("arxiv"):
+            lines.append(f"- S2_API_KEY: not configured. Not needed for the arXiv provider; for Semantic Scholar's "
+                         f"citations and recommendations, request a key at {key['how_to_get']} (see README).")
+        else:
+            lines.append(f"- S2_API_KEY: not configured. Requests use the shared unauthenticated pool. "
+                         f"Request a key at {key['how_to_get']} and put it in .env (see README).")
     lines.append(f"- Paper provider: {s['provider']}")
     lines.append(f"- Request policy: Semantic Scholar ≥{s['s2_min_interval']}s between requests, "
                  f"{s['s2_max_retries']} retries, at most {s['s2_max_requests']} attempts per command; "

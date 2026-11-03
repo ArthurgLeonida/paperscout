@@ -256,6 +256,9 @@ class RecencyPreference(str, Enum):
     none = "none"
 
 
+MAX_SAVED_SEARCHES = 8
+
+
 class KnowledgeLevel(str, Enum):
     expert = "expert"  # could teach it: background papers are review material
     working = "working"  # uses it regularly
@@ -301,6 +304,8 @@ class ResearchProfile(BaseModel):
     include_foundational: bool = True
     knowledge: list[TopicKnowledge] = Field(default_factory=list)
     arxiv_categories: list[str] = Field(default_factory=list)  # e.g. ["cs.CV", "cs.GR"]; arXiv provider only
+    # Short searches (3-6 words each) run by /recent and /discover when no topic is given.
+    search_queries: list[str] = Field(default_factory=list)
     weekly_reading_hours: float | None = None
     created_at: datetime | None = None
     updated_at: datetime | None = None
@@ -312,6 +317,21 @@ class ResearchProfile(BaseModel):
         if not value:
             raise ValueError("profile name must not be empty")
         return value
+
+    @field_validator("search_queries")
+    @classmethod
+    def _queries(cls, value: list[str]) -> list[str]:
+        cleaned: list[str] = []
+        for query in value:
+            query = " ".join(query.split())
+            if not query or query.lower() in (q.lower() for q in cleaned):
+                continue
+            if len(query) > 80:
+                raise ValueError(f"saved search {query[:30]!r}... is too long; keep each to a few words")
+            cleaned.append(query)
+        if len(cleaned) > MAX_SAVED_SEARCHES:
+            raise ValueError(f"at most {MAX_SAVED_SEARCHES} saved searches (each one costs an API request)")
+        return cleaned
 
     @field_validator("weekly_reading_hours")
     @classmethod

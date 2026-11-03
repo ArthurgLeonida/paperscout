@@ -1,7 +1,7 @@
 ---
 name: discover
 description: Discover useful papers for a topic or research question without a date limit, balancing foundational work, prerequisites, surveys, and recent methods (paperscout; arXiv without a Semantic Scholar key, Semantic Scholar with one). Use when the user wants background, foundations, or a broad reading list.
-argument-hint: <topic-or-research-question> [--folder NAME] [--profile NAME] [--limit N] [--seed ID]... [--include-read] [--provider arxiv|semantic-scholar] [--verbose]
+argument-hint: '[topic-or-research-question] [--folder NAME] [--profile NAME] [--limit N] [--seed ID]... [--include-read] [--provider arxiv|semantic-scholar] [--verbose]'
 allowed-tools: Bash(uv run -q paperscout *)
 ---
 
@@ -21,7 +21,7 @@ Pass the raw arguments **unchanged**, single-quoted (escape `'` as `'\''`):
 uv run -q paperscout slash discover --args '<raw arguments>'
 ```
 
-With Semantic Scholar, the CLI searches, adds recommendations from seed papers and positive feedback, and fetches the reference lists of the top results to surface shared prerequisites. With arXiv (the default without a key), it runs keyword search only, and the report says that citations, recommendations and prerequisites aren't available. Say so too, and don't present papers as foundational without evidence. It then deduplicates and ranks against the active profile. On `Usage error:` or `Error:`, show the message and stop. On rate limiting, show the diagnostics line, say that no results were retrieved, and suggest retrying later or requesting an API key. Don't promise approval or limits. Never present results that the CLI didn't return.
+With Semantic Scholar, the CLI searches, adds recommendations from seed papers and positive feedback, and fetches the reference lists of the top results to surface shared prerequisites. With arXiv (the default without a key), it runs keyword search only, and the report says that citations, recommendations and prerequisites aren't available. Say so too, and don't present papers as foundational without evidence. It then deduplicates and ranks against the active profile. With no topic, it runs the saved searches in the researcher's profile and merges the results; say which searches ran. On `Usage error:` or `Error:`, show the message and stop. On rate limiting, show the diagnostics line, say that no results were retrieved, and suggest retrying later or requesting an API key. Don't promise approval or limits. Never present results that the CLI didn't return.
 
 ## 2. Present by reading role
 

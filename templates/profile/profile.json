@@ -28,5 +28,9 @@
     }
   ],
   "arxiv_categories": [],
+  "search_queries": [
+    "[SEARCH_QUERY_1]",
+    "[SEARCH_QUERY_2]"
+  ],
   "weekly_reading_hours": 5
 }
