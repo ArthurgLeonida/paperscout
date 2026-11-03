@@ -1,0 +1,81 @@
+# Transparent, versioned ranking configuration (docs/ranking.md).
+# Every paper gets a 1-100 score: the weighted mean of the criteria that are known.
+# Scores order a reading list; they are NOT probabilities or quality measures, and
+# differences under about 10 points are not meaningful.
+# Change the version string whenever weights, thresholds or rules change so
+# stored runs remain interpretable.
+#
+# v3: six criteria rated 1-100 (relevance, usefulness, foundation, recency,
+# popularity, seeds). Relevance, usefulness and foundation can be rated by Claude
+# judge subagents (/rank, /recent, /discover without --quick); otherwise they are
+# computed here. Popularity uses citation counts (Semantic Scholar, or OpenAlex
+# for arXiv papers). The knowledge map still adjusts reading depth only.
+version = "score-v3"
+
+[score_weights]
+# Unknown criteria are dropped and the remaining weights renormalised, so a missing
+# value never counts as 0. Weights need not sum to 100.
+relevance = 30          # fit to the topic, folder or saved searches being ranked
+usefulness = 25         # help for the current project (needs a profile)
+foundation = 15         # established method or prerequisite (0 if include_foundational = false)
+recency = 10            # multiplied by the recency-preference factor below
+popularity = 10         # citations per year, log scale; kept small so citations never dominate
+seeds = 10              # similarity to your seed papers and papers you marked relevant
+
+[recency_preference_factor]
+strong = 1.0
+moderate = 0.5
+none = 0.0
+
+[recency_half_life_days]   # recency = 100 at publication, 50 after one half-life
+strong = 180
+moderate = 540
+none = 1095
+
+[popularity]
+min_age_days = 365                 # younger papers: popularity unknown (not penalised)
+full_score_citations_per_year = 200  # log scale: 1/yr ~ 13, 10/yr ~ 45, 50/yr ~ 74, 200/yr = 100
+
+[foundation]
+# Computed only when there is evidence; otherwise unknown (a judge can rate it).
+prerequisite_shared = 85   # in the reference lists of 2+ top results (Semantic Scholar)
+prerequisite_single = 70   # in the reference list of one top result
+widely_cited = 75          # foundational role: old enough and widely cited (see [roles])
+
+[priority_thresholds]   # score cut-offs (1-100)
+P1 = 60
+P2 = 40
+P3 = 25
+
+[band_thresholds]       # lexical signal value (0..1) -> high/medium/low
+high = 0.60
+medium = 0.30
+
+[penalties]
+exclusion_hit = 0.5     # multiplier when an exclusion criterion matches
+negative_seed = 0.6     # multiplier when closer to a negative seed than to positive seeds
+
+[profile_match]
+# Fraction of topic terms that must appear in the profile text before the
+# profile is used to judge project usefulness for an ad-hoc topic.
+min_topic_overlap = 0.25
+
+[roles]
+foundational_min_age_years = 3
+foundational_min_citations = 200
+recent_method_max_age_days = 548
+
+[effort_minutes]        # planning heuristics, not predictions
+overview = [20, 40]
+survey_overview = [40, 75]
+substantive = [90, 150]
+deep = [240, 420]
+note_buffer_fraction = 0.15
+
+[synonyms]
+# Editable, field-agnostic mechanism; these entries are only examples.
+"3dgs" = ["gaussian splatting"]
+"nerf" = ["neural radiance field"]
+"ldm" = ["latent diffusion"]
+"vlm" = ["vision language model"]
+"llm" = ["large language model"]

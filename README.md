@@ -5,9 +5,10 @@ A research-paper discovery and reading-priority assistant for [Claude Code](http
 It answers *"Which papers should I read for this research goal, why, in what order, and at what depth?"* It doesn't claim to find objectively "best" papers.
 
 - Discovery through arXiv search (no key needed) or Semantic Scholar search, recommendations and reference lists (with a key), deduplicated with provenance
-- Transparent, versioned heuristic ranking. Relevance, project usefulness, recency, evidence, confidence and effort are reported separately; citation counts never raise priority.
+- A transparent 1–100 score per paper from six criteria (relevance, project usefulness, foundational value, recency, popularity, seed similarity), each shown with its source and reason. Three Claude Code judge subagents rate relevance, usefulness and foundational value; the rest is computed, and citations carry little weight.
 - A private research background built by `/setup` (from your CV, papers and project documents, or an interview), so Claude knows what you already know and what you're working on
 - Local research folders (SQLite), append-only feedback, reading plans, note scaffolds
+- `/download`: the top papers' arXiv PDFs, numbered in ranking order, with a `reading-list.md` of scores, reasons and links (for your personal use)
 - Claude Code slash commands (`/recent`, `/discover`, `/rank`, …) that call one tested service layer
 - Honest limits: Semantic Scholar **website** folders and Research Feeds have no official API, so they're never presented as supported (see [docs/capability-matrix.md](docs/capability-matrix.md))
 
@@ -21,12 +22,12 @@ paperscout runs entirely on your computer. There is no shared server, and the pr
 |---|---|---|
 | Key | None | Your own key from the [official form](https://www.semanticscholar.org/product/api#api-key-form). Approval and limits are Semantic Scholar's decision |
 | Coverage | arXiv preprints (most CV/ML papers appear there) | Papers across publishers and venues |
-| Data | Title, abstract, authors, categories, exact v1 submission date, DOI/journal ref when the authors added them | The same, plus venue, citation counts, machine-generated TLDRs |
+| Data | Title, abstract, authors, categories, exact v1 submission date, DOI/journal ref when the authors added them; citation counts from OpenAlex | The same, plus venue, citation counts, machine-generated TLDRs |
 | Discovery | Keyword search, optionally limited to your arXiv categories | Search, seed-based recommendations, reference lists (for prerequisites) |
 | Limits | 1 request every 3 s (arXiv terms of use; enforced) | 1 request/s with a key; the unauthenticated pool is often throttled (HTTP 429) |
 
 - `PAPERSCOUT_PROVIDER=auto` (the default) uses Semantic Scholar when `S2_API_KEY` is set, and arXiv otherwise. Force one with `PAPERSCOUT_PROVIDER=arxiv` or `semantic-scholar`, or per command with `--provider`. `uv run -q paperscout doctor` shows the active provider.
-- On arXiv, reports say plainly what's missing: no citation counts, recommendations or reference lists, so foundational papers and shared prerequisites aren't inferred.
+- On arXiv, reports say plainly what's missing: no recommendations or reference lists, so shared prerequisites aren't inferred. Citation counts come from [OpenAlex](https://openalex.org) (keyless; only paper identifiers and a few titles are sent; turn off with `PAPERSCOUT_OPENALEX=off`).
 - A Semantic Scholar key is personal. Never commit it, paste it into issues or chats, or share it. The [API License Agreement](https://www.semanticscholar.org/product/api/license) doesn't allow redistributing or sublicensing API access.
 - Contributors don't need a key: the test suite uses mocked responses for both providers.
 
@@ -84,9 +85,10 @@ uv run -q python scripts/live_smoke.py --budget 15    # lookup, search, recommen
 | Command | Purpose |
 |---|---|
 | `/setup [--section NAME]` | Build or update your private research background (documents, CV, or interview) |
-| `/recent [topic] [--days N \| --since D] [--until D] [--folder F] [--profile P] [--limit N] [--include-read]` | Recent papers (default window 90 days, configurable); no topic = your saved searches |
-| `/discover [topic] [--folder F] [--profile P] [--limit N] [--seed ID]` | Balanced reading list: prerequisites, surveys, methods; no topic = your saved searches |
-| `/rank "<folder>" [--unread] [--new] [--imported]` · `/rank --all [--profile P]` | Rank local folders |
+| `/recent [topic] [--days N \| --since D] [--until D] [--folder F] [--profile P] [--limit N] [--include-read] [--quick]` | Recent papers (default window 90 days, configurable); no topic = your saved searches |
+| `/discover [topic] [--folder F] [--profile P] [--limit N] [--seed ID] [--quick]` | Balanced reading list: prerequisites, surveys, methods; no topic = your saved searches |
+| `/rank "<folder>" [--unread] [--new] [--imported] [--quick]` · `/rank --all [--profile P]` | Rank local folders |
+| `/download [--top N] [--folder F \| --run R] [--out DIR] [--dry-run]` | Save the top papers' arXiv PDFs (default 10) and a reading list from the latest `/discover` or `/recent`, or a folder's latest `/rank` |
 | `/folders list \| show "F" \| create "F" \| propose <field>` | Manage local folders; proposals are previewed and need confirmation |
 | `/classify <DOI \| arXiv \| S2 id/URL \| title>` | Suggest folders; never changes anything without approval |
 | `/add <paper> --folder "F"` | Add to a local folder (never creates folders implicitly) |
@@ -98,7 +100,20 @@ uv run -q python scripts/live_smoke.py --budget 15    # lookup, search, recommen
 
 Multiword topics need no quotes: `/recent text-guided 3D Gaussian scene editing`. Quote folder names that contain spaces: `/rank "3D Scene Editing" --unread`. Unknown options are rejected with a suggestion rather than ignored.
 
-The order of results comes from deterministic heuristic scores. Your knowledge map adjusts recommended reading depth, but never priority. Claude explains the results in terms of your background and doesn't change the stored order; stored Claude assessments are shown for reference only (see [docs/ranking.md](docs/ranking.md)).
+### How papers are scored
+
+Each paper gets a **score from 1 to 100**: the weighted mean of six criteria, each rated 1–100 or left unknown (unknown criteria are left out, never counted as zero).
+
+| Criterion | Weight | Source |
+|---|---|---|
+| Relevance to the topic, folder or saved searches | 30 | `relevance-judge` subagent, or computed from term matches with `--quick` |
+| Usefulness for your current project | 25 | `usefulness-judge` subagent (reads your background), or computed |
+| Foundational value | 15 | `foundation-judge` subagent, or computed from reference lists and citations |
+| Recency | 10 | computed; scaled by your recency preference |
+| Popularity | 10 | computed: citations per year, log scale; unknown under a year old |
+| Similarity to your seed papers | 10 | computed |
+
+P1 is 60 or more, P2 40, P3 25. `/rank`, `/recent` and `/discover` run the three judges in parallel on the top papers, validate their JSON, store it, and show the re-ranked list. Add `--quick` for computed criteria only (no subagents, a few seconds). Every criterion in the report says where it came from and why. Judge ratings are LLM judgments of the abstract, not facts, and the score is for ordering a reading list, not a quality measure. Your knowledge map adjusts reading depth, never the score. Details: [docs/ranking.md](docs/ranking.md).
 
 Feedback labels: `relevant`, `irrelevant`, `already_known`, `read_later`, `read_overview`, `understood`, `deep_study`, `implemented`, `not_useful`.
 
@@ -106,9 +121,11 @@ Feedback labels: `relevant`, `irrelevant`, `already_known`, `read_later`, `read_
 
 You can ask in plain language ("find recent papers that could be baselines for my project", "I want to learn flow matching, where do I start?") and Claude picks the right command, or type the commands yourself.
 
-- **Papers for you:** `/recent` or `/discover` with no topic runs your saved searches, merges the results, and ranks them against your profile.
+- **Papers for you:** `/recent` or `/discover` with no topic runs your saved searches, merges the results, and ranks them against your profile. Each run keeps a **shortlist** of the top 20 (`--limit N`, up to 50); the judges rate all of them, and the list is stored with the run and saved in the report.
+- **Reading them:** `/download` saves the top 10 of the latest list as PDFs (`/download --top 20`, or `/download --folder "Baselines"` for a ranked folder) in `Downloads/paperscout/<date> <list>/`, numbered in ranking order, for example `01 - 65 - GaussCtrl … (2403.08733).pdf`, with a `reading-list.md` of scores, reasons and links. Copy the folder to your tablet, or set `PAPERSCOUT_DOWNLOAD_DIR` to a synced folder. Only arXiv papers are downloaded, at one request every three seconds; files already there are skipped.
 - **A specific topic:** use 3–6 words, phrased like a paper title. `/discover multi-view consistent gaussian splatting editing` works far better than a whole research question.
 - **A field you want to learn:** give the field as the topic (`/discover flow matching`). If it differs from your project, the report says it's ranked by topic only. Mark the field `new` with `/setup --section knowledge` so background papers on it get a proper read, and use `/reading-plan --hours 3` for a study plan.
+- **Re-ranking a folder:** `/rank "Baselines"`. Judge ratings are stored per folder and profile, so later rankings reuse them until you change the profile or the folder; `--quick` skips the judges.
 - **The loop:** `/assess` a paper, `/add` it to a folder, `/rank` the folder, `/reading-plan --week`, `/note <paper> --pass first` for your tablet, and `/paper-feedback` so later results fit you better (`/setup --section calibrate` turns the feedback into criteria).
 
 ## The same commands from a terminal
@@ -121,7 +138,8 @@ uv run -q paperscout import my-s2-library-export.bib --folder "3D Scene Editing"
 uv run -q paperscout import documents/reading-history/zotero.bib --folder "Reading history" --mark already_known
 uv run -q paperscout profile sync                     # reload profile/profile.json after editing it
 uv run -q paperscout feedback-log --limit 20
-uv run -q paperscout rank "3D Scene Editing" --unread
+uv run -q paperscout rank "3D Scene Editing" --unread   # computed criteria + stored judge ratings
+uv run -q paperscout judge packet --run <run-id>      # what the /rank skill hands to the judge subagents
 uv run -q paperscout plan --hours 5
 uv run -q paperscout feedback <paper-id> read_later "check the editing losses"
 uv run -q paperscout capabilities
@@ -139,7 +157,7 @@ Add `--json` to get JSON output. Ranking commands also save Markdown and JSON re
 - [Capability matrix](docs/capability-matrix.md): what each service officially supports, with sources
 - [Architecture](docs/architecture.md): service layer, Claude authentication strategy, provenance, write safety
 - [Research background](docs/background.md): what `/setup` builds, how Claude and the ranking use it, privacy
-- [Ranking](docs/ranking.md): what determines the order, dimensions, knowledge-map depth adjustments, configuration, evidence limits
+- [Ranking](docs/ranking.md): the 1–100 score, criteria and weights, judge subagents, OpenAlex citations, knowledge-map depth adjustments, configuration, evidence limits
 - [Evaluation](docs/evaluation.md): building your labeled set and comparing against baselines
 - [Validation status](docs/validation.md): what has been tested live, with mocks, or not at all
 
@@ -147,7 +165,7 @@ Add `--json` to get JSON output. Ranking commands also save Markdown and JSON re
 
 | Step | Scope | Status |
 |---|---|---|
-| Phase 1 | Research background via `/setup` (knowledge map, goals, reading style), profiles and folders, Semantic Scholar search and recommendations, dedup, heuristic ranking, CLI, reports, feedback, slash commands, reading plans, folder proposals, classification | implemented; live search validation pending |
+| Phase 1 | Research background via `/setup` (knowledge map, goals, reading style), profiles and folders, Semantic Scholar search and recommendations, dedup, 1–100 scoring with judge subagents and OpenAlex citations, CLI, reports, feedback, slash commands, reading plans, folder proposals, classification | implemented; live search validation pending |
 | Next | Read-only Zotero integration: list collections, rank a collection, skip papers already in the library | planned |
 | Later | Scheduled discovery, permitted full-text assessment, bulk search. An MCP server only if it adds a capability the slash commands lack. Zotero writes only with preview + explicit confirmation | not started |
 
@@ -159,4 +177,4 @@ Contributions are welcome. See [CONTRIBUTING.md](CONTRIBUTING.md) for setup, tes
 
 The code is released under the [MIT License](LICENSE).
 
-Paper data comes from [arXiv](https://arxiv.org/) and [Semantic Scholar](https://www.semanticscholar.org/). Thank you to arXiv for use of its open access interoperability. arXiv metadata is CC0 under the [arXiv API terms of use](https://info.arxiv.org/help/api/tou.html). paperscout stores metadata only, links to arXiv abstract pages, and never stores or serves PDFs. Semantic Scholar data is subject to the [Semantic Scholar API License Agreement](https://www.semanticscholar.org/product/api/license), not to this project's license; if you publish research that uses it, cite *The Semantic Scholar Open Data Platform*, as that license asks. paperscout is an independent project, not affiliated with or endorsed by arXiv, the Allen Institute for AI, or Semantic Scholar.
+Paper data comes from [arXiv](https://arxiv.org/) and [Semantic Scholar](https://www.semanticscholar.org/). Thank you to arXiv for use of its open access interoperability. arXiv metadata is CC0 under the [arXiv API terms of use](https://info.arxiv.org/help/api/tou.html). paperscout stores metadata and links to arXiv abstract pages. It saves e-print PDFs only when you run `download`, to a local folder for your personal use, which the terms allow; it never serves or redistributes them, and you shouldn't either. Semantic Scholar data is subject to the [Semantic Scholar API License Agreement](https://www.semanticscholar.org/product/api/license), not to this project's license; if you publish research that uses it, cite *The Semantic Scholar Open Data Platform*, as that license asks. paperscout is an independent project, not affiliated with or endorsed by arXiv, the Allen Institute for AI, or Semantic Scholar.

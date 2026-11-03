@@ -1,14 +1,19 @@
-"""Transparent heuristic scoring.
+"""Transparent 1-100 scoring.
 
-Each dimension (topic relevance, project usefulness, seed affinity, recency)
-is computed and reported separately with its basis. Unknown dimensions are
-reported as unknown and excluded from the combined ordering score (weights are
-renormalised) rather than treated as zero. Citation counts are used only to
-label a paper's likely *reading role*, never to rank it.
+Every paper is rated on six criteria (relevance, project usefulness,
+foundational value, recency, popularity, seed similarity), each 1-100 or
+unknown, and reported separately with its basis. The score is the weighted mean
+of the known criteria: unknown ones are dropped and the weights renormalised,
+never counted as zero. Relevance, usefulness and foundational value are computed
+here from lexical signals unless a Claude judge subagent has rated them for the
+same ranking context; the source of every criterion is recorded. Popularity uses
+citations per year on a log scale with a small weight, and papers too new to
+have citations are not penalised.
 """
 
 from __future__ import annotations
 
+import math
 import re
 import tomllib
 from dataclasses import dataclass, field
@@ -21,6 +26,7 @@ from paperscout.models import (
     Band,
     Candidate,
     Component,
+    CriterionScore,
     EvidenceLevel,
     FeedbackEvent,
     HeuristicAssessment,
@@ -31,6 +37,7 @@ from paperscout.models import (
     ReadingRole,
     RecencyPreference,
     ResearchProfile,
+    StoredJudgment,
     TopicKnowledge,
 )
 from paperscout.ranking.text import (
@@ -43,11 +50,13 @@ from paperscout.ranking.text import (
     tokenize,
 )
 
-DEFAULT_CONFIG = "heuristic-v2"
+DEFAULT_CONFIG = "score-v3"
 
 _SURVEY = re.compile(r"\b(survey|review|overview|tutorial|primer|state of the art)\b", re.IGNORECASE)
 _BENCH = re.compile(r"\b(benchmark|dataset|challenge|leaderboard)\b", re.IGNORECASE)
 BACKGROUND_ROLES = (ReadingRole.foundational, ReadingRole.prerequisite, ReadingRole.survey)
+CITATION_SOURCES = {"semantic-scholar": "Semantic Scholar", "openalex": "OpenAlex"}
+STRONG = 85  # deep reads need two criteria at or above this (judges rate good matches 70-90 routinely)
 
 
 @dataclass(frozen=True)
@@ -67,7 +76,8 @@ def load_ranking_config(path: Path | None = None, name: str = DEFAULT_CONFIG) ->
         data = tomllib.loads(Path(path).read_text(encoding="utf-8"))
     else:
         data = tomllib.loads((resources.files("paperscout.ranking") / f"{name}.toml").read_text(encoding="utf-8"))
-    for section in ("weights", "priority_thresholds", "band_thresholds", "effort_minutes"):
+    for section in ("score_weights", "priority_thresholds", "band_thresholds", "effort_minutes", "popularity",
+                    "foundation"):
         if section not in data:
             raise ValueError(f"ranking config missing [{section}]")
     return RankingConfig(data)
@@ -85,6 +95,19 @@ class RankingContext:
     exclusion_criteria: list[str] = field(default_factory=list)
     today: date = field(default_factory=date.today)
     recency_preference: RecencyPreference = RecencyPreference.moderate
+
+
+def clamp_score(value: float) -> int:
+    return max(1, min(100, round(value)))
+
+
+def age_days(paper: Paper, today: date) -> int | None:
+    published = paper.published_on()
+    if published is not None:
+        return max(0, (today - published).days)
+    if paper.year is not None:
+        return max(0, (today - date(paper.year, 7, 1)).days)
+    return None
 
 
 def doc_text(paper: Paper) -> str:
@@ -123,8 +146,11 @@ class HeuristicScorer:
         candidates: list[Candidate],
         ctx: RankingContext,
         feedback: dict[str, FeedbackEvent] | None = None,
+        judgments: dict[str, dict[str, StoredJudgment]] | None = None,
     ) -> list[HeuristicAssessment]:
+        """Rate each candidate; ``judgments`` maps paper_id -> criterion -> a stored judge rating to use."""
         feedback = feedback or {}
+        judgments = judgments or {}
         doc_tokens = [tokenize(expand_synonyms(doc_text(c.paper), self.synonyms)) for c in candidates]
         seed_tokens = [
             tokenize(expand_synonyms(doc_text(p), self.synonyms)) for p in ctx.positive_seeds + ctx.negative_seeds
@@ -158,18 +184,18 @@ class HeuristicScorer:
             recency = self._recency_component(paper, ctx)
 
             exclusion_hits = [c for c, toks in exclusion_phrases if all(t in token_set for t in toks)]
-            score = self._combine(
-                {"topic_relevance": topic, "project_usefulness": useful, "seed_affinity": seed, "recency": recency},
-                ctx.recency_preference,
-            )
-            neg_closer = seed.basis.startswith("closer to a negative seed")
-            if score is not None:
-                if exclusion_hits:
-                    score *= self.config["penalties"]["exclusion_hit"]
-                if neg_closer:
-                    score *= self.config["penalties"]["negative_seed"]
-
             role, role_basis = self._role(paper, cand, ctx.today)
+            criteria = self._criteria(paper, cand, role, topic, useful, seed, recency, ctx,
+                                      judgments.get(paper.paper_id, {}))
+            raw = self._combine(criteria, ctx)
+            neg_closer = seed.basis.startswith("closer to a negative seed")
+            score = None
+            if raw is not None:
+                if exclusion_hits:
+                    raw *= self.config["penalties"]["exclusion_hit"]
+                if neg_closer:
+                    raw *= self.config["penalties"]["negative_seed"]
+                score = clamp_score(raw)
             priority = self._priority(score)
             fb = feedback.get(paper.paper_id)
             feedback_note = None
@@ -177,7 +203,7 @@ class HeuristicScorer:
                 feedback_note = f"Your latest feedback: {fb.label.value}" + (f" — {fb.reason}" if fb.reason else "")
                 if fb.label.negative:
                     priority = Priority.skip
-            depth = self._depth(priority, role, topic, useful, seed)
+            depth = self._depth(priority, role, criteria)
             depth, background_note = self._knowledge_adjustment(depth, role, priority, token_set, knowledge)
             effort = self._effort(depth, role)
 
@@ -187,7 +213,7 @@ class HeuristicScorer:
                 uncertainties.append(
                     "Matches exclusion criteria (" + "; ".join(exclusion_hits) + ") — check whether that applies."
                 )
-            confidence = self._confidence(evidence, [topic, useful, seed, recency])
+            confidence = self._confidence(evidence, [topic, useful, seed, recency], criteria)
 
             matched = sorted(t for t in set(topic_tokens) if t in token_set)
             results.append(
@@ -202,7 +228,8 @@ class HeuristicScorer:
                     reading_role=role,
                     role_basis=role_basis,
                     priority=priority,
-                    heuristic_score=round(score, 2) if score is not None else None,
+                    score=score,
+                    criteria=criteria,
                     reading_depth=depth,
                     effort_minutes=effort,
                     matched_terms=matched,
@@ -281,14 +308,81 @@ class HeuristicScorer:
         value = 0.5 ** (age / half_life)
         return Component(value=round(value, 2), band=self.band(value), basis=basis)
 
-    def _combine(self, components: dict[str, Component], preference: RecencyPreference) -> float | None:
-        weights = dict(self.config["weights"])
-        weights["recency"] *= self.config["recency_preference_factor"][preference.value]
-        known = {k: c.value for k, c in components.items() if c.value is not None and weights.get(k, 0) > 0}
-        if "topic_relevance" not in known and "project_usefulness" not in known:
+    @staticmethod
+    def _from_signal(component: Component) -> CriterionScore:
+        if component.value is None:
+            return CriterionScore(basis=component.basis)
+        return CriterionScore(value=clamp_score(component.value * 100), basis=component.basis)
+
+    def _criteria(self, paper, cand, role, topic, useful, seed, recency, ctx, judged) -> dict[str, CriterionScore]:
+        criteria = {
+            "relevance": self._from_signal(topic),
+            "usefulness": self._from_signal(useful),
+            "foundation": self._foundation(paper, cand, role),
+            "recency": self._from_signal(recency),
+            "popularity": self._popularity(paper, ctx.today),
+            "seeds": self._from_signal(seed),
+        }
+        for name, judgment in judged.items():
+            if name not in criteria:
+                continue
+            stamp = f"{judgment.prompt_version}, {judgment.created_at.date().isoformat()}"
+            if judgment.score is None:
+                criteria[name].basis += f" (a judge could not rate it: {judgment.evidence} [{stamp}])"
+                continue
+            criteria[name] = CriterionScore(
+                value=judgment.score, source=f"judge:{judgment.judge}", confidence=judgment.confidence,
+                basis=f"{judgment.evidence} [rated from the {judgment.basis.replace('_', ' ')}; {stamp}]",
+            )
+        return criteria
+
+    def _foundation(self, paper: Paper, cand: Candidate, role: ReadingRole) -> CriterionScore:
+        cfg = self.config["foundation"]
+        if role is ReadingRole.prerequisite:
+            detail = next((p.detail for p in cand.provenance if p.source == "s2.references" and p.detail), "")
+            match = re.search(r"cited by (\d+)", detail)
+            shared = int(match.group(1)) if match else 1
+            value = cfg["prerequisite_shared"] if shared >= 2 else cfg["prerequisite_single"]
+            return CriterionScore(value=value, basis=f"prerequisite: {detail or 'in the reference list of a top result'}")
+        if role is ReadingRole.foundational:
+            source = CITATION_SOURCES.get(paper.citation_source or "", "source unknown")
+            return CriterionScore(value=cfg["widely_cited"], basis=(
+                f"published {paper.year} and cited {paper.citation_count} times ({source}): established work"))
+        if paper.citation_count is None:
+            return CriterionScore(basis="unknown: no citation count or reference-list evidence")
+        return CriterionScore(basis="unknown: not in a reference list, and not both old and widely cited")
+
+    def _popularity(self, paper: Paper, today: date) -> CriterionScore:
+        cfg = self.config["popularity"]
+        if paper.citation_count is None:
+            return CriterionScore(basis="unknown: the source gives no citation count")
+        source = CITATION_SOURCES.get(paper.citation_source or "", "source unknown")
+        cited = f"{paper.citation_count} citations ({source})"
+        age = age_days(paper, today)
+        if age is None:
+            return CriterionScore(basis=f"{cited}; publication date unknown, so citations per year are unknown")
+        if age < cfg["min_age_days"]:
+            return CriterionScore(basis=f"{cited}; under {cfg['min_age_days'] // 30} months old, too new to judge "
+                                        "popularity (not penalised)")
+        per_year = paper.citation_count / (age / 365.25)
+        value = 100 * math.log10(1 + per_year) / math.log10(1 + cfg["full_score_citations_per_year"])
+        rate = f"{per_year:.1f}" if per_year < 10 else f"{per_year:.0f}"
+        return CriterionScore(value=clamp_score(value), basis=f"{cited}, about {rate} a year")
+
+    def _combine(self, criteria: dict[str, CriterionScore], ctx: RankingContext) -> float | None:
+        """Weighted mean over known criteria; records each criterion's effective weight."""
+        weights = {k: float(v) for k, v in self.config["score_weights"].items()}
+        weights["recency"] *= self.config["recency_preference_factor"][ctx.recency_preference.value]
+        profile = ctx.profile if ctx.use_profile else None
+        if profile is not None and not profile.include_foundational:
+            weights["foundation"] = 0.0
+        known = {k: c.value for k, c in criteria.items() if c.value is not None and weights.get(k, 0) > 0}
+        if "relevance" not in known and "usefulness" not in known:
             return None
         total = sum(weights[k] for k in known)
-        return sum(weights[k] * v for k, v in known.items()) / total if total else None
+        for name, criterion in criteria.items():
+            criterion.weight = round(weights[name] / total, 3) if name in known else 0.0
+        return sum(weights[k] * v for k, v in known.items()) / total
 
     def _priority(self, score: float | None) -> Priority:
         if score is None:
@@ -304,6 +398,7 @@ class HeuristicScorer:
 
     def _role(self, paper: Paper, cand: Candidate, today: date) -> tuple[ReadingRole, str]:
         cfg = self.config["roles"]
+        age = age_days(paper, today)
         if any(p.source == "s2.references" for p in cand.provenance):
             return ReadingRole.prerequisite, "cited by a seed/target paper (retrieved from its reference list)"
         if paper.publication_types and "Review" in paper.publication_types:
@@ -312,20 +407,17 @@ class HeuristicScorer:
             return ReadingRole.survey, "title suggests a survey/overview"
         if _BENCH.search(paper.title):
             return ReadingRole.benchmark_dataset, "title mentions a benchmark/dataset"
-        age_days = None
-        if paper.published_on():
-            age_days = (today - paper.published_on()).days
-        elif paper.year:
-            age_days = (today - date(paper.year, 7, 1)).days
         if (
-            age_days is not None
-            and age_days >= 365 * cfg["foundational_min_age_years"]
+            age is not None
+            and age >= 365 * cfg["foundational_min_age_years"]
             and (paper.citation_count or 0) >= cfg["foundational_min_citations"]
         ):
+            source = CITATION_SOURCES.get(paper.citation_source or "", "source unknown")
             return ReadingRole.foundational, (
-                f"older ({paper.year}) and widely cited — role label only; citations do not raise priority"
+                f"older ({paper.year}) and widely cited ({paper.citation_count}, {source}); citations feed only the "
+                "foundation and popularity criteria"
             )
-        if age_days is not None and age_days <= cfg["recent_method_max_age_days"]:
+        if age is not None and age <= cfg["recent_method_max_age_days"]:
             return ReadingRole.recent_method, "recent paper; role assumed to be a method contribution"
         if paper.abstract:
             return ReadingRole.method, "default role for a non-survey research paper"
@@ -369,13 +461,13 @@ class HeuristicScorer:
             )
         return depth, None
 
-    def _depth(self, priority, role, topic, useful, seed) -> ReadingDepth:
+    def _depth(self, priority, role, criteria: dict[str, CriterionScore]) -> ReadingDepth:
         if priority is Priority.skip:
             return ReadingDepth.skip
         if role is ReadingRole.survey:
             return ReadingDepth.overview
         if priority is Priority.p1:
-            strong = [c for c in (topic, useful, seed) if c.band is Band.high]
+            strong = [k for k in ("relevance", "usefulness", "seeds") if (criteria[k].value or 0) >= STRONG]
             return ReadingDepth.deep if len(strong) >= 2 and role is not ReadingRole.benchmark_dataset else ReadingDepth.substantive
         if priority is Priority.p2 and role in (ReadingRole.foundational, ReadingRole.prerequisite):
             return ReadingDepth.substantive
@@ -389,13 +481,17 @@ class HeuristicScorer:
             return tuple(eff["survey_overview"])
         return tuple(eff[depth.value])
 
-    def _confidence(self, evidence: EvidenceLevel, components: list[Component]) -> Band:
+    def _confidence(self, evidence: EvidenceLevel, components: list[Component],
+                    criteria: dict[str, CriterionScore]) -> Band:
         unknown = sum(1 for c in components if c.value is None)
         if evidence is EvidenceLevel.metadata:
             return Band.low
         if evidence is EvidenceLevel.tldr or unknown >= 3:
             return Band.low
-        # Lexical heuristics never claim high confidence; a Claude review can add context.
+        # Lexical heuristics never claim high confidence; only two or more confident judge ratings can.
+        judged = [c for c in criteria.values() if c.judged and c.value is not None]
+        if len(judged) >= 2 and all(c.confidence is Band.high for c in judged):
+            return Band.high
         return Band.medium
 
     def _uncertainties(self, paper, evidence, role, topic, useful, seed, recency, ctx) -> list[str]:
@@ -415,7 +511,8 @@ class HeuristicScorer:
         recent = paper.published_on() and (ctx.today - paper.published_on()).days < 365
         if paper.citation_count is None:
             if not recent and role is not ReadingRole.survey:
-                notes.append("Citation count unknown (the source provides none), so foundational status was not inferred.")
+                notes.append("Citation count unknown (the source provides none), so popularity and foundational "
+                             "status were not inferred from citations.")
         elif recent and paper.citation_count < 10:
             notes.append("Few citations is expected for a recent paper and was not penalised.")
         return notes

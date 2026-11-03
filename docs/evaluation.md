@@ -24,7 +24,7 @@ This compares, on the same labeled papers:
 
 | Ordering | Meaning |
 |---|---|
-| heuristic (paperscout) | the stored run order |
+| heuristic (paperscout) | the stored run order (the 1–100 score, with judge ratings if the run was judged) |
 | search order | Semantic Scholar relevance-search rank |
 | recency only | newest first |
 | BM25 lexical | plain non-LLM relevance (no profile, seeds, or recency) |

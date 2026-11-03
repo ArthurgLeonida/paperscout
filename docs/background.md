@@ -36,7 +36,9 @@ Update a single part with `/setup --section background|knowledge|goals|reading|c
 
 If Claude would prioritise something differently, it says so in a separate "Claude's suggested adjustments (interpretation, not stored)" section. The output is never described as AI-ranked.
 
-**By the deterministic ranking (`heuristic-v2`).** `profile.json` drives:
+**By the judge subagents.** `/rank`, `/recent` and `/discover` pass the paths of your four prose files to the `usefulness-judge` (and `04-recommendation-criteria.md` to the `foundation-judge`), which read them locally to rate papers against your goals and must-read criteria. Nothing from them is stored except each rating's one-sentence reason.
+
+**By the computed criteria (`score-v3`).** `profile.json` drives:
 - topic relevance and project usefulness (keywords, research question, outcomes)
 - seed affinity (seed papers, plus papers you marked relevant)
 - recency (your preference)
@@ -58,7 +60,7 @@ Priority and ordering never change, and each adjustment appears in reports as a 
 ## Privacy
 
 - `profile/`, `CLAUDE.local.md` and everything in `documents/` except its README and folder skeleton are git-ignored. `/setup` checks this before writing anything and stops if the rules are missing.
-- Nothing about your background is sent to Semantic Scholar beyond what a search needs: query terms, seed paper identifiers, and paper IDs to resolve.
+- Nothing about your background is sent to Semantic Scholar or arXiv beyond what a search needs: query terms, seed paper identifiers, and paper IDs to resolve. OpenAlex receives only paper DOIs and, for a few older papers, titles.
 - Claude Code reads the files locally as part of your session.
 
 ## Without Claude Code

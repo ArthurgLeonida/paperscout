@@ -21,9 +21,11 @@ from paperscout.models import (
     FeedbackEvent,
     FeedbackLabel,
     FolderMembership,
+    JudgeBatch,
     Paper,
     ResearchFolder,
     ResearchProfile,
+    StoredJudgment,
     utcnow,
 )
 
@@ -434,14 +436,15 @@ class Store:
                 (run_id, paper_id, position, provenance, assessment, snapshot_id),
             )
 
-    def previously_surfaced(self, paper_ids: Iterable[str], exclude_run: str | None = None) -> set[str]:
+    def previously_surfaced(self, paper_ids: Iterable[str], exclude_runs: Iterable[str] = ()) -> set[str]:
         ids = list(paper_ids)
         if not ids:
             return set()
-        placeholders = ",".join("?" * len(ids))
+        excluded = list(exclude_runs) or [""]
         rows = self.conn.execute(
-            f"SELECT DISTINCT paper_id FROM run_candidates WHERE paper_id IN ({placeholders}) AND run_id != ?",
-            [*ids, exclude_run or ""],
+            f"SELECT DISTINCT paper_id FROM run_candidates WHERE paper_id IN ({','.join('?' * len(ids))}) "
+            f"AND run_id NOT IN ({','.join('?' * len(excluded))})",
+            [*ids, *excluded],
         ).fetchall()
         return {r["paper_id"] for r in rows}
 
@@ -451,12 +454,13 @@ class Store:
             raise NotFound(f"No run {run_id!r}")
         return dict(row)
 
-    def latest_run(self, kinds: tuple[str, ...]) -> dict[str, Any] | None:
+    def latest_run(self, kinds: tuple[str, ...], query: str | None = None) -> dict[str, Any] | None:
         placeholders = ",".join("?" * len(kinds))
+        where = " AND query = ?" if query is not None else ""
         row = self.conn.execute(
-            f"SELECT * FROM runs WHERE kind IN ({placeholders}) AND finished_at IS NOT NULL "
-            "ORDER BY started_at DESC LIMIT 1",
-            kinds,
+            f"SELECT * FROM runs WHERE kind IN ({placeholders}) AND finished_at IS NOT NULL{where} "
+            "ORDER BY started_at DESC, rowid DESC LIMIT 1",
+            [*kinds, *([query] if query is not None else [])],
         ).fetchone()
         return dict(row) if row else None
 
@@ -503,6 +507,37 @@ class Store:
             "SELECT * FROM assessments WHERE paper_id = ? ORDER BY id", (paper_id,)
         ).fetchall()
         return [dict(r) for r in rows]
+
+    # ------------------------------------------------------------------ judge ratings
+    def add_judgments(self, run_id: str, context_key: str, batch: JudgeBatch) -> int:
+        now = _iso(utcnow())
+        with self.conn:
+            self.conn.executemany(
+                "INSERT INTO criterion_judgments (run_id, context_key, paper_id, criterion, score, confidence, basis, "
+                "evidence, judge, prompt_version, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                [(run_id, context_key, j.paper_id, batch.criterion, j.score, j.confidence, j.basis, j.evidence,
+                  batch.model, batch.prompt_version, now) for j in batch.judgments],
+            )
+        return len(batch.judgments)
+
+    def latest_judgments(self, paper_ids: Iterable[str], context_key: str) -> dict[str, dict[str, StoredJudgment]]:
+        """paper_id -> criterion -> the most recent rating made for this ranking context."""
+        ids = list(paper_ids)
+        if not ids:
+            return {}
+        rows = self.conn.execute(
+            f"SELECT * FROM criterion_judgments WHERE context_key = ? AND paper_id IN ({','.join('?' * len(ids))}) "
+            "ORDER BY id",
+            [context_key, *ids],
+        ).fetchall()
+        latest: dict[str, dict[str, StoredJudgment]] = {}
+        for row in rows:
+            latest.setdefault(row["paper_id"], {})[row["criterion"]] = StoredJudgment(
+                criterion=row["criterion"], score=row["score"], confidence=row["confidence"], basis=row["basis"],
+                evidence=row["evidence"], judge=row["judge"], prompt_version=row["prompt_version"],
+                run_id=row["run_id"], created_at=_dt(row["created_at"]),
+            )
+        return latest
 
     # ------------------------------------------------------------------ audit
     def audit(

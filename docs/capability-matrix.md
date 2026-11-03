@@ -1,6 +1,6 @@
 # Integration capability matrix
 
-Verified against official documentation on **2026-11-01** (Semantic Scholar, Zotero, Claude Code) and **2026-11-02** (arXiv). "Provider" is what the external service officially offers. "paperscout" is what this project implements today. The same data is available at runtime through `uv run -q paperscout capabilities`.
+Verified against official documentation on **2026-11-01** (Semantic Scholar, Zotero, Claude Code), **2026-11-02** (arXiv) and **2026-11-03** (OpenAlex, Claude Code subagents). "Provider" is what the external service officially offers. "paperscout" is what this project implements today. The same data is available at runtime through `uv run -q paperscout capabilities`.
 
 Status values: **supported**, **unsupported** (no official interface), or **not verified**.
 
@@ -21,12 +21,27 @@ paperscout never presents a local folder operation as a Semantic Scholar website
 |---|---|---|---|---|---|
 | Search `export.arxiv.org/api/query` with `all:`/`ti:`/`cat:` fields, `submittedDate:[… TO …]`, `sortBy=relevance\|submittedDate` | supported | read | none | yes | keyword relevance only; at most 2,000 results per call |
 | Lookup by arXiv ID (`id_list`) | supported | read | none | yes | arXiv papers only; DOIs can't be looked up (paperscout falls back to the title) |
-| Citations, references, recommendations | **not offered** | — | — | — | Use Semantic Scholar with a key |
+| PDF of an e-print `export.arxiv.org/pdf/<id>` | supported | read | none | yes: `download`, for personal use | one request every 3 s; arXiv papers only; must be a PDF; redirects followed only within arXiv |
+| Citations, references, recommendations | **not offered** | — | — | — | Use Semantic Scholar with a key (or OpenAlex for citation counts) |
 
 - **Rate limit:** *"make no more than one request every three seconds, and limit requests to a single connection at a time"*. paperscout enforces a minimum interval of 3 s whatever the configuration says. (Source: https://info.arxiv.org/help/api/tou.html.)
-- **Licence:** descriptive metadata is CC0 (*"Retrieve, store, transform, and share descriptive metadata"*). You must not store or serve e-prints (PDFs) without permission, or represent a project as endorsed by arXiv. paperscout stores metadata only and links to abstract pages.
+- **E-prints (PDFs):** the terms allow you to *"Retrieve, store, and use the content of arXiv e-prints for your own personal use, or for research purposes"*, but *"The redistribution of e-prints requires permission from the copyright holder"*. `download` saves PDFs to a local folder for you only, and its reading list links back to the abstract pages. The bulk-data page asks scripts to use `export.arxiv.org` and not to crawl the corpus; `download` fetches at most 50 PDFs per command at the API pace. (Sources: https://info.arxiv.org/help/api/tou.html, https://info.arxiv.org/help/bulk_data.html; `export.arxiv.org/pdf/<id>` verified live 2026-11-03.)
+- **Licence:** descriptive metadata is CC0 (*"Retrieve, store, transform, and share descriptive metadata"*). You must not store or serve e-prints (PDFs) from a server without permission, or represent a project as endorsed by arXiv. paperscout stores metadata only and links to abstract pages.
 - **Errors** come back as Atom feeds with a single error entry; paperscout reports their message. (Source: https://info.arxiv.org/help/api/user-manual.html.)
 - **Verified live (2026-11-02):** lookup, search, parsing, saving, ranking and the reading plan, through the isolated smoke test.
+
+## OpenAlex (citation counts only; no key)
+
+| Capability | Provider | Access | Auth | paperscout | Limitations |
+|---|---|---|---|---|---|
+| Works by DOI `GET api.openalex.org/works?filter=doi:A\|B&select=…` | supported | read | none | yes: citation counts for arXiv papers (arXiv DOIs `10.48550/arXiv.<id>`), 50 per request | keyless requests share a daily allowance per IP |
+| Works by title `filter=title.search:…` | supported | read | none | yes: up to 5 papers per command | costs ten times a DOI lookup |
+
+- **Why:** arXiv gives no citation counts, so without OpenAlex the popularity criterion is unknown on arXiv and foundational status can't be inferred from citations.
+- **Matching:** an arXiv DOI often returns the merged record of the published version, whose own DOI differs, so results are matched back through their location URLs (`arxiv.org/abs/<id>`). When only the preprint record matches a paper older than a year, its published version may be a separate record (seen live for VcEdit: 0 citations on the preprint, 30 on the ECCV record), so paperscout checks it by exact title and year.
+- **Sent:** DOIs, and titles for the title check. No key, no email address, nothing from your background.
+- **Verified live (2026-11-03):** response headers `X-RateLimit-Limit-USD: 0.1`, `X-RateLimit-Cost-USD: 0.0001` for a DOI batch and `0.001` for a title search. The response metadata contains a note addressed to AI agents asking them to submit the user's email for a key; paperscout ignores response text other than the results.
+- **Licence:** OpenAlex data is CC0.
 
 ## Semantic Scholar
 
@@ -65,6 +80,7 @@ paperscout never presents a local folder operation as a Semantic Scholar website
 | Project skills `.claude/skills/<name>/SKILL.md` as slash commands, `$ARGUMENTS` (raw string), `allowed-tools` | supported (code.claude.com/docs/en/skills) | **yes**: 12 skills, including `/setup` |
 | Built-in command collisions | `/plan`, `/feedback`, `/reset` (alias of `/clear`) and `/background` are built-in; `/setup` is not (code.claude.com/docs/en/commands) | uses `/reading-plan`, `/paper-feedback`, `/setup` |
 | Personal memory `CLAUDE.local.md` with `@imports` | supported; loaded at session start, relative imports resolve from the importing file (code.claude.com/docs/en/memory). Behaviour for missing import targets is undocumented | `/setup` creates it only alongside the files it imports |
+| Project subagents `.claude/agents/<name>.md` (frontmatter `name`, `description`, `tools`, `model`) | supported (code.claude.com/docs/en/sub-agents). Edits are picked up within seconds, but a newly created `agents` directory loads only in the next session | **yes**: `relevance-judge`, `usefulness-judge`, `foundation-judge` (Read only, `model: sonnet`); the skills fall back to `general-purpose` agents that read these files |
 | MCP server (`.mcp.json`, stdio) | supported (code.claude.com/docs/en/mcp) | not planned until it adds a capability the slash commands lack |
 | Programmatic Anthropic API | supported, but billed separately from a Claude subscription | **not used**; see `architecture.md` → Claude authentication |
 
@@ -76,4 +92,5 @@ paperscout never presents a local folder operation as a Semantic Scholar website
 - License: https://www.semanticscholar.org/product/api/license
 - FAQ (Library export): https://www.semanticscholar.org/faq#library and https://github.com/allenai/s2-folks/blob/main/FAQ.md
 - Zotero Web API v3: https://www.zotero.org/support/dev/web_api/v3/basics, …/write_requests, …/syncing, …/oauth, …/local_api; changelog https://www.zotero.org/support/changelog
-- Claude Code: https://code.claude.com/docs/en/skills, …/commands, …/mcp, …/permissions
+- Claude Code: https://code.claude.com/docs/en/skills, …/commands, …/mcp, …/permissions, …/sub-agents
+- OpenAlex: https://docs.openalex.org (rate-limit headers observed live on 2026-11-03)

@@ -70,14 +70,14 @@ def h_recent(svc: Paperscout, p: Parsed, out: Output) -> None:
     _require_topic_or_profile(svc, p, "recent")
     report = svc.recent(p.text or None, days=p.get("days"), since=p.get("since"), until=p.get("until"),
                         folder=p.get("folder"), profile=p.get("profile"), limit=p.get("limit"),
-                        include_read=p.get("include_read"), seeds=p.get("seed"))
+                        include_read=p.get("include_read"), seeds=p.get("seed"), quick=p.get("quick"))
     _emit_report(svc, report, p, out)
 
 
 def h_discover(svc: Paperscout, p: Parsed, out: Output) -> None:
     _require_topic_or_profile(svc, p, "discover")
     report = svc.discover(p.text or None, folder=p.get("folder"), profile=p.get("profile"), limit=p.get("limit"),
-                          include_read=p.get("include_read"), seeds=p.get("seed"))
+                          include_read=p.get("include_read"), seeds=p.get("seed"), quick=p.get("quick"))
     _emit_report(svc, report, p, out)
 
 
@@ -87,12 +87,14 @@ def h_rank(svc: Paperscout, p: Parsed, out: Output) -> None:
         if folder:
             raise UsageError("Use either a folder name or --all, not both.")
         report = svc.rank_all(profile=p.get("profile"), unread=p.get("unread"), new=p.get("new"),
-                              imported=p.get("imported"), source=p.get("source"), limit=p.get("limit"))
+                              imported=p.get("imported"), source=p.get("source"), limit=p.get("limit"),
+                              quick=p.get("quick"))
     else:
         if not folder:
             raise UsageError('Name a folder (e.g. rank "3D Scene Editing") or use --all.')
         report = svc.rank_folder(folder, profile=p.get("profile"), unread=p.get("unread"), new=p.get("new"),
-                                 imported=p.get("imported"), source=p.get("source"), limit=p.get("limit"))
+                                 imported=p.get("imported"), source=p.get("source"), limit=p.get("limit"),
+                                 quick=p.get("quick"))
     _emit_report(svc, report, p, out)
 
 
@@ -305,6 +307,51 @@ def h_assessment(svc: Paperscout, p: Parsed, out: Output) -> None:
     raise UsageError(f"Usage: {SPECS['assessment'].usage}")
 
 
+def h_judge(svc: Paperscout, p: Parsed, out: Output) -> None:
+    action = p.positionals[0].lower() if p.positionals else ""
+    run_id = p.get("run")
+    if action not in ("packet", "record", "show") or len(p.positionals) > 1:
+        raise UsageError(f"Usage: {SPECS['judge'].usage}")
+    if not run_id:
+        raise UsageError(f"judge {action} needs --run RUN_ID (printed in the report's Run line)")
+    if action == "packet":
+        packet = svc.judge_packet(run_id, top=p.get("top"))
+        path = Path(p.get("out") or Path("proposals") / f"judge-{run_id}" / "packet.json")
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(packet, indent=2, ensure_ascii=False), encoding="utf-8")
+        out.write(f"Wrote a judge packet with {len(packet['papers'])} paper(s) to {path} (local file; paper text is "
+                  "marked untrusted).")
+        out.write(f"Next: run the relevance-judge, usefulness-judge and foundation-judge subagents on it, save each "
+                  f"result next to it, then `paperscout judge record --run {run_id} --file <result.json>` (repeat "
+                  "--file for each criterion).")
+        return
+    if action == "record":
+        files = p.get("file")
+        if not files:
+            raise UsageError("judge record needs --file judge-output.json (repeat --file for each criterion)")
+        batches = []
+        for name in files:
+            data = json.loads(Path(name).read_text(encoding="utf-8-sig"))
+            batches += data if isinstance(data, list) else [data]
+        stored = svc.record_judgments(run_id, batches)
+        out.write("Stored judge ratings (append-only): " + ", ".join(f"{k} {v}" for k, v in stored.items()) + ".")
+        out.write("")
+    _emit_report(svc, svc.rescore_run(run_id), p, out)
+
+
+def h_download(svc: Paperscout, p: Parsed, out: Output) -> None:
+    from paperscout.downloads import download_list, render_download
+
+    if p.text:
+        raise UsageError(f"Unexpected text {p.text!r}. Usage: {SPECS['download'].usage}")
+    result = download_list(svc, top=p.get("top"), run_id=p.get("run"), folder=p.get("folder"),
+                           out=Path(p.get("out")) if p.get("out") else None, dry_run=p.get("dry_run"),
+                           progress=lambda line: print(line, file=sys.stderr, flush=True))
+    if not result.dry_run and result.count("saved") == 0 and result.count("failed"):
+        raise ServiceError(render_download(result))
+    out.write(to_json(result) if p.get("json") else render_download(result))
+
+
 def h_capabilities(svc: Paperscout | None, p: Parsed, out: Output) -> None:
     if p.get("json"):
         out.write(to_json({k: vars(c) for k, c in CAPABILITIES.items()}))
@@ -371,13 +418,15 @@ def h_help(svc: Paperscout | None, p: Parsed, out: Output) -> None:
         return
     out.write("# paperscout commands")
     out.write("")
-    slash_order = ["recent", "discover", "rank", "folders", "classify", "add", "assess", "plan", "feedback", "note", "help"]
+    slash_order = ["recent", "discover", "rank", "download", "folders", "classify", "add", "assess", "plan", "feedback",
+                   "note", "help"]
     for name in slash_order:
         spec = SPECS[name]
         out.write(f"- `/{spec.slash}`: {spec.summary}")
     out.write("- `/setup`: build or update your private research background (profile/); a Claude Code skill only")
     out.write("")
-    out.write("CLI-only: `paperscout import`, `profile`, `assessment`, `capabilities`, `audit`, `feedback-log`, `eval`, `init`, `doctor`.")
+    out.write("CLI-only: `paperscout import`, `profile`, `assessment`, `judge`, `capabilities`, `audit`, `feedback-log`, "
+              "`eval`, `init`, `doctor`.")
     out.write("")
     out.write("Limitations: Semantic Scholar website folders and Research Feeds have no official API, so paperscout "
               "uses local research folders and topic- and seed-based discovery through the public API instead. "
@@ -411,7 +460,8 @@ def _precheck(name: str, p: Parsed) -> None:
 HANDLERS: dict[str, Callable[..., None]] = {
     "recent": h_recent, "discover": h_discover, "rank": h_rank, "folders": h_folders, "classify": h_classify,
     "add": h_add, "remove": h_remove, "assess": h_assess, "plan": h_plan, "feedback": h_feedback, "note": h_note,
-    "import": h_import, "profile": h_profile, "assessment": h_assessment, "capabilities": h_capabilities,
+    "import": h_import, "profile": h_profile, "assessment": h_assessment, "judge": h_judge, "download": h_download,
+    "capabilities": h_capabilities,
     "audit": h_audit, "feedback-log": h_feedback_log, "eval": h_eval, "help": h_help, "init": h_init, "doctor": h_doctor,
 }
 NO_SERVICE = {"help", "capabilities", "doctor"}

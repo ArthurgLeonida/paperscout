@@ -1,6 +1,6 @@
 ---
 name: research-help
-description: Show paperscout's research commands (/setup, /recent, /discover, /rank, /folders, /classify, /add, /assess, /reading-plan, /paper-feedback, /note), their options, defaults, and integration limitations.
+description: Show paperscout's research commands (/setup, /recent, /discover, /rank, /download, /folders, /classify, /add, /assess, /reading-plan, /paper-feedback, /note), their options, defaults, and integration limitations.
 argument-hint: '[command]'
 allowed-tools: Bash(uv run -q paperscout *)
 ---
@@ -20,4 +20,5 @@ Show the output as it is, without inventing commands or options. Then add these 
 - `/plan` and `/feedback` are built-in Claude Code commands, so the reading plan is `/reading-plan` and feedback is `/paper-feedback`.
 - Recommendations are personalised by the private background that `/setup` builds in `profile/`. Without it, results are ranked by topic only.
 - Without a Semantic Scholar API key, paperscout searches arXiv. That needs no key and covers arXiv preprints only, with no citations or recommendations. `uv run -q paperscout doctor` shows the active provider.
+- `/download` saves arXiv PDFs for personal use only: arXiv's terms don't allow redistributing them, and papers not on arXiv are listed with links instead.
 - Read-only Zotero integration is the next planned feature; full-text assessment comes later (`uv run -q paperscout capabilities`).

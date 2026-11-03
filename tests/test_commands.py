@@ -8,7 +8,7 @@ from paperscout.commands import SPECS, UsageError, parse_raw, spec_for, tokenize
 def test_multiword_topic_without_quotes():
     p = parse_raw(SPECS["recent"], "text-guided 3D Gaussian scene editing")
     assert p.text == "text-guided 3D Gaussian scene editing"
-    assert p.get("limit") == 10 and p.get("days") is None
+    assert p.get("limit") == 20 and p.get("days") is None
 
 
 def test_options_anywhere_and_quoted_folder():

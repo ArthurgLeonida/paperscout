@@ -207,4 +207,4 @@ def test_migrations_are_idempotent(tmp_path):
     conn = connect(tmp_path / "m.sqlite3")
     assert migrate(conn) == []
     versions = [r[0] for r in conn.execute("SELECT version FROM schema_migrations")]
-    assert versions == [1]
+    assert versions == [1, 2]

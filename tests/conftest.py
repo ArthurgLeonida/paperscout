@@ -237,9 +237,16 @@ class FakeArxiv:
     def __init__(self):
         self.calls: list[httpx.Request] = []
         self.queries: list[str] = []
+        self.pdf_responses: dict[str, httpx.Response] = {}  # arXiv ID -> response overriding the synthetic PDF
 
     def __call__(self, request: httpx.Request) -> httpx.Response:
         self.calls.append(request)
+        if request.url.path.startswith("/pdf/"):
+            arxiv_id = request.url.path[len("/pdf/"):]
+            if arxiv_id in self.pdf_responses:
+                return self.pdf_responses[arxiv_id]
+            return httpx.Response(200, headers={"content-type": "application/pdf"},
+                                  content=b"%PDF-1.4 SYNTHETIC test file for " + arxiv_id.encode() + b" %%EOF")
         params = request.url.params
         if params.get("id_list"):
             ids = params["id_list"].split(",")
@@ -281,7 +288,7 @@ def fake_s2() -> FakeS2:
 @pytest.fixture
 def settings(tmp_path: Path) -> Settings:
     return Settings(home=tmp_path / "home", s2_min_interval=0.0, s2_max_retries=3, s2_max_backoff=30.0,
-                    provider="semantic-scholar")
+                    provider="semantic-scholar", download_dir=tmp_path / "downloads")
 
 
 @pytest.fixture

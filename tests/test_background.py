@@ -51,7 +51,7 @@ def test_expert_topic_lightens_background_paper_without_changing_priority():
     adjusted = assess(3, topic, [{"topic": "gaussian splatting", "level": "expert"}])
     assert adjusted.reading_depth is ReadingDepth.overview
     assert "expert in 'gaussian splatting'" in adjusted.background_note
-    assert (adjusted.priority, adjusted.heuristic_score) == (base.priority, base.heuristic_score)
+    assert (adjusted.priority, adjusted.score) == (base.priority, base.score)
     assert adjusted.effort_minutes[1] < base.effort_minutes[1]
 
 

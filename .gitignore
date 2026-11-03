@@ -7,6 +7,9 @@
 data/
 reports/
 notes/
+# Downloaded papers are for personal use only (arXiv terms: no redistribution)
+papers/
+*.pdf
 proposals/
 *.sqlite
 *.sqlite3

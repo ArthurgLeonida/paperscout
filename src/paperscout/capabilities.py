@@ -77,6 +77,15 @@ CAPABILITIES: dict[str, Capability] = {
             "DOIs and non-arXiv papers cannot be looked up on arXiv", "Look up by title, or use Semantic Scholar",
         ),
         Capability(
+            "openalex.citations", "Citation counts for papers whose provider gives none (GET api.openalex.org/works, "
+            "filter=doi: and title.search:)", "supported", "read", "none (keyless daily allowance per IP)", "yes",
+            "https://docs.openalex.org",
+            "keyless use shares a small daily allowance (a DOI batch costs 1/10 of a title search); a preprint and "
+            "its published version are sometimes separate records, so up to 5 older papers per command are also "
+            "checked by exact title; identifiers and titles only are sent; off with PAPERSCOUT_OPENALEX=off",
+            "popularity unknown",
+        ),
+        Capability(
             "s2.website_library.read", "Read your Semantic Scholar website Library folders", "unsupported",
             "read", "n/a", "no", "https://api.semanticscholar.org/api-docs/",
             "no official endpoint in the Graph, Recommendations or Datasets APIs",
@@ -145,6 +154,14 @@ CAPABILITIES: dict[str, Capability] = {
             "-",
         ),
         Capability(
+            "claude.subagents", "Judge subagents (.claude/agents/*-judge.md) rating relevance, usefulness and "
+            "foundational value 1-100", "supported", "read", "your Claude Code login", "yes",
+            "https://code.claude.com/docs/en/sub-agents",
+            "Read-only tools; output is validated by `paperscout judge record` before storage; a newly created "
+            ".claude/agents/ directory loads in the next session",
+            "`--quick` (computed criteria only), or general-purpose agents that read the agent files",
+        ),
+        Capability(
             "claude.mcp", "MCP server exposing paperscout tools", "supported", "n/a", "your Claude Code login",
             "no", "https://code.claude.com/docs/en/mcp",
             "not planned until it adds a user-visible capability the slash commands lack",
@@ -155,6 +172,13 @@ CAPABILITIES: dict[str, Capability] = {
             "separate ANTHROPIC_API_KEY with its own billing", "no",
             "https://docs.claude.com/en/api/overview", "costs API credits; not included in a Claude subscription",
             "Claude Code reviews paperscout's structured evidence in-session.",
+        ),
+        Capability(
+            "arxiv.pdf", "Save e-print PDFs of a list's top papers for personal use (export.arxiv.org/pdf/<id>)",
+            "supported", "read", "none", "yes", "https://info.arxiv.org/help/api/tou.html",
+            "personal or research use only, never redistributed; one request every 3 s; arXiv papers only; "
+            "checked to be a PDF; redirects followed only within arXiv",
+            "Papers not on arXiv are listed with their links.",
         ),
         Capability(
             "fulltext.assessment", "Full-text assessment of permitted open-access PDFs", "not_verified", "read",

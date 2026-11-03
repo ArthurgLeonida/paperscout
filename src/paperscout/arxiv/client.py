@@ -4,8 +4,10 @@ No key is needed. The terms of use (https://info.arxiv.org/help/api/tou.html)
 allow at most one request every three seconds over a single connection; this
 client never paces faster than that, whatever the configuration says.
 Metadata (title, abstract, authors, identifiers, categories) is CC0. paperscout
-stores metadata only and links to arXiv abstract pages; it never stores or
-serves PDFs.
+stores metadata and links to arXiv abstract pages. It saves an e-print PDF only
+when the user runs ``download``, for their personal use, which the terms allow
+("Retrieve, store, and use the content of arXiv e-prints for your own personal
+use, or for research purposes"); it never serves or redistributes PDFs.
 """
 
 from __future__ import annotations
@@ -14,12 +16,13 @@ import re
 import time
 import xml.etree.ElementTree as ET
 from datetime import date
+from pathlib import Path
 from typing import Any, Callable, Iterable
 
 import httpx
 
 from paperscout.config import ARXIV_MIN_INTERVAL, Settings
-from paperscout.http import ApiBadRequest, ApiClient, ApiError, RequestPolicy
+from paperscout.http import ApiBadRequest, ApiClient, ApiError, ApiNotFound, ApiRateLimited, RequestPolicy
 from paperscout.identifiers import IdentifierError, normalize_arxiv
 from paperscout.models import Author, Paper
 from paperscout.ranking.text import STOPWORDS
@@ -142,6 +145,66 @@ class ArxivClient(ApiClient):
 
     def _rate_limit_advice(self) -> str:
         return "arXiv allows one request every three seconds; wait a little and try again."
+
+    def download_pdf(self, arxiv_id: str, dest: Path, max_bytes: int) -> int:
+        """Save one e-print PDF to ``dest`` (written atomically). Returns its size in bytes.
+
+        Paced like every arXiv request, never retried, never cached, and checked to be a PDF. Redirects are
+        followed only to arXiv hosts.
+        """
+        url = httpx.URL(f"{self.settings.arxiv_pdf_base}/{arxiv_id}")
+        part = dest.with_name(dest.name + ".part")
+        try:
+            for _ in range(3):
+                size = self._stream_pdf(url, arxiv_id, part, max_bytes)
+                if isinstance(size, httpx.URL):
+                    url = size
+                    continue
+                with part.open("rb") as fh:
+                    if fh.read(5) != b"%PDF-":
+                        raise ApiError(f"The file arXiv sent for {arxiv_id} is not a PDF; skipped.")
+                part.replace(dest)
+                return size
+            raise ApiError(f"Too many redirects for the PDF of {arxiv_id}.")
+        except httpx.TransportError as exc:
+            raise ApiError(f"network error downloading the PDF of {arxiv_id}: {type(exc).__name__}") from None
+        finally:
+            part.unlink(missing_ok=True)
+
+    def _stream_pdf(self, url: httpx.URL, arxiv_id: str, part: Path, max_bytes: int) -> int | httpx.URL:
+        """One paced GET: writes the body to ``part`` and returns its size, or returns an arXiv redirect target."""
+        self._pace()
+        self._last_request = self._monotonic()
+        self.network_calls += 1
+        self.sources_used.append("arxiv.pdf")
+        with self._http.stream("GET", url) as response:
+            if response.is_redirect:
+                target = response.url.join(response.headers.get("location", ""))
+                host = target.host or ""
+                if host != "arxiv.org" and not host.endswith(".arxiv.org"):
+                    raise ApiError(f"arXiv redirected the PDF of {arxiv_id} to another site ({host}); not followed.")
+                return target
+            status = response.status_code
+            if status == 404:
+                raise ApiNotFound(f"arXiv has no PDF for {arxiv_id} (HTTP 404).", status)
+            if status == 429 or status >= 500:
+                raise ApiRateLimited(f"arXiv answered HTTP {status} for the PDF of {arxiv_id}. "
+                                     f"{self._rate_limit_advice()}", status)
+            if status != 200:
+                raise ApiError(f"arXiv answered HTTP {status} for the PDF of {arxiv_id}.", status)
+            kind = response.headers.get("content-type", "")
+            if "pdf" not in kind.lower():
+                raise ApiError(f"arXiv sent {kind or 'no content type'} instead of a PDF for {arxiv_id} "
+                               "(the PDF may still be generating; try again later).")
+            size = 0
+            with part.open("wb") as fh:
+                for chunk in response.iter_bytes():
+                    size += len(chunk)
+                    if size > max_bytes:
+                        raise ApiError(f"The PDF of {arxiv_id} is larger than {max_bytes // 2**20} MB; skipped "
+                                       "(PAPERSCOUT_DOWNLOAD_MAX_MB).")
+                    fh.write(chunk)
+            return size
 
     def _error_message(self, response: httpx.Response) -> str:
         detail = response.text[:300]

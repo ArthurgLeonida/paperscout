@@ -19,8 +19,12 @@ S2_GRAPH_BASE = "https://api.semanticscholar.org/graph/v1"
 S2_RECS_BASE = "https://api.semanticscholar.org/recommendations/v1"
 S2_KEY_FORM = "https://www.semanticscholar.org/product/api#api-key-form"
 ARXIV_API = "https://export.arxiv.org/api/query"
+# arXiv asks scripts to use export.arxiv.org rather than the main site (info.arxiv.org/help/bulk_data.html).
+ARXIV_PDF = "https://export.arxiv.org/pdf"
 # arXiv API terms of use: "no more than one request every three seconds".
 ARXIV_MIN_INTERVAL = 3.0
+# OpenAlex (CC0 metadata) supplies citation counts when the paper provider has none (arXiv).
+OPENALEX_API = "https://api.openalex.org"
 PROVIDERS = ("auto", "arxiv", "semantic-scholar")
 
 
@@ -93,6 +97,10 @@ def default_home() -> Path:
     return Path.home() / ".local" / "share" / "paperscout"
 
 
+def default_download_dir() -> Path:
+    return Path.home() / "Downloads" / "paperscout"
+
+
 def _float(name: str, default: float) -> float:
     try:
         return float(os.environ.get(name, default))
@@ -134,6 +142,13 @@ class Settings:
     arxiv_min_interval: float = ARXIV_MIN_INTERVAL
     arxiv_max_retries: int = 2
     arxiv_max_requests: int = 10
+    arxiv_pdf_base: str = ARXIV_PDF
+    download_dir: Path | None = None  # None: ~/Downloads/paperscout
+    download_max_mb: int = 100
+    # Off unless load_settings() turns it on, so code that builds Settings directly never calls OpenAlex.
+    openalex: bool = False
+    openalex_base: str = OPENALEX_API
+    openalex_max_requests: int = 10
     cache_ttl: CacheTTL = field(default_factory=CacheTTL)
     key_source: str = "not set"  # "environment" | ".env: <path>" | "not set"
     env_files_loaded: tuple[str, ...] = ()
@@ -157,6 +172,10 @@ class Settings:
     def notes_dir(self) -> Path:
         return self.home / "notes"
 
+    @property
+    def downloads_dir(self) -> Path:
+        return self.download_dir or default_download_dir()
+
     def _key_status(self) -> str:
         if not self.s2_api_key:
             return "not set"
@@ -176,6 +195,8 @@ class Settings:
             "provider": f"{self.effective_provider} (setting: {self.provider})",
             "arxiv_min_interval": self.arxiv_min_interval,
             "arxiv_max_requests": self.arxiv_max_requests,
+            "openalex": "on" if self.openalex else "off",
+            "downloads_dir": str(self.downloads_dir),
         }
 
 
@@ -193,6 +214,7 @@ def load_settings(cwd: Path | None = None) -> Settings:
     source = "environment" if key_in_env else (f".env: {key_file}" if key_file else "not set")
     home_env = os.environ.get("PAPERSCOUT_HOME")
     home = Path(home_env).expanduser().resolve() if home_env else default_home()
+    download_env = os.environ.get("PAPERSCOUT_DOWNLOAD_DIR")
     # Without a key, requests share a frequently throttled pool: fail fast instead of hammering it.
     default_retries = 3 if key else 2
     return Settings(
@@ -206,6 +228,10 @@ def load_settings(cwd: Path | None = None) -> Settings:
         provider=normalize_provider(os.environ.get("PAPERSCOUT_PROVIDER", "auto")),
         arxiv_min_interval=max(ARXIV_MIN_INTERVAL, _float("PAPERSCOUT_ARXIV_MIN_INTERVAL", ARXIV_MIN_INTERVAL)),
         arxiv_max_requests=_int("PAPERSCOUT_ARXIV_MAX_REQUESTS", 10),
+        openalex=os.environ.get("PAPERSCOUT_OPENALEX", "on").strip().lower() not in ("off", "0", "false", "no"),
+        openalex_max_requests=_int("PAPERSCOUT_OPENALEX_MAX_REQUESTS", 10),
+        download_dir=Path(download_env).expanduser().resolve() if download_env else None,
+        download_max_mb=_int("PAPERSCOUT_DOWNLOAD_MAX_MB", 100),
         key_source=source if key else "not set",
         env_files_loaded=tuple(loaded_files),
     )

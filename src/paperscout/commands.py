@@ -217,8 +217,8 @@ VERBOSE = Opt("--verbose", "flag", "show full abstracts, provenance, and orderin
 JSON = Opt("--json", "flag", "print JSON instead of Markdown")
 PROFILE = Opt("--profile", "str", "research profile name or ID (default: the active profile)")
 FOLDER = Opt("--folder", "str", "local research folder name or ID")
-LIMIT_RECENT = Opt("--limit", "int", "number of papers to show", minimum=1, maximum=50, default=10)
-LIMIT_DISCOVER = Opt("--limit", "int", "number of papers to show", minimum=1, maximum=50, default=12)
+SHORTLIST = Opt("--limit", "int", "shortlist size: the top papers that are judged, shown, saved and downloadable",
+                minimum=1, maximum=50, default=20)
 INCLUDE_READ = Opt("--include-read", "flag", "include papers you already reviewed")
 SEED = Opt("--seed", "multi", "seed paper identifier for recommendations (repeatable)")
 SOURCE = Opt("--source", "choice", "where the papers come from", choices=("local", "zotero", "s2-library", "s2-feed"),
@@ -226,6 +226,7 @@ SOURCE = Opt("--source", "choice", "where the papers come from", choices=("local
 DRY_RUN = Opt("--dry-run", "flag", "preview only; change nothing")
 PROVIDER = Opt("--provider", "choice", "paper source for this command (default: PAPERSCOUT_PROVIDER, auto)",
                choices=("arxiv", "semantic-scholar", "s2"))
+QUICK = Opt("--quick", "flag", "computed criteria only: ignore stored judge ratings (the skills also skip the judges)")
 
 SPECS: dict[str, CommandSpec] = {
     s.name: s
@@ -236,7 +237,7 @@ SPECS: dict[str, CommandSpec] = {
             "[--limit N] [--include-read] [--seed ID]...",
             (Opt("--days", "int", "window length in days (default 90, configurable)", minimum=1, maximum=3650),
              Opt("--since", "date", "window start (YYYY-MM-DD)"), Opt("--until", "date", "window end (default today)"),
-             FOLDER, PROFILE, LIMIT_RECENT, INCLUDE_READ, SEED, PROVIDER, VERBOSE, JSON),
+             FOLDER, PROFILE, SHORTLIST, INCLUDE_READ, SEED, PROVIDER, QUICK, VERBOSE, JSON),
             ("/recent text-guided 3D Gaussian scene editing", "/recent   (no topic: your profile's saved searches)",
              "/recent medical image segmentation --days 90",
              '/recent diffusion models --folder "Diffusion Models" --limit 10'),
@@ -246,7 +247,7 @@ SPECS: dict[str, CommandSpec] = {
         CommandSpec(
             "discover", "discover", "Discover useful papers (foundational, recent, surveys) without a date limit.",
             "discover [<topic-or-question>] [--folder NAME] [--profile NAME] [--limit N] [--include-read] [--seed ID]...",
-            (FOLDER, PROFILE, LIMIT_DISCOVER, INCLUDE_READ, SEED, PROVIDER, VERBOSE, JSON),
+            (FOLDER, PROFILE, SHORTLIST, INCLUDE_READ, SEED, PROVIDER, QUICK, VERBOSE, JSON),
             ("/discover background preservation in 3D scene editing", '/discover --folder "3D Reconstruction"'),
             ("Fetches the reference lists of the top results to surface shared prerequisites (Semantic Scholar only).",
              "Without a topic, runs the saved searches in your profile and merges the results."),
@@ -258,9 +259,10 @@ SPECS: dict[str, CommandSpec] = {
              Opt("--unread", "flag", "only papers without a read-type feedback label"),
              Opt("--new", "flag", "only papers added since the folder was last ranked"),
              Opt("--imported", "flag", "only papers imported from files (BibTeX/RIS/ID lists)"),
-             SOURCE, Opt("--limit", "int", "maximum papers per list", minimum=1, maximum=500), VERBOSE, JSON),
-            ('/rank "3D Scene Editing"', '/rank "3D Scene Editing" --unread', "/rank --all",
-             '/rank --all --profile "Current Project"'),
+             SOURCE, Opt("--limit", "int", "maximum papers per list", minimum=1, maximum=500), QUICK, VERBOSE,
+             JSON),
+            ('/rank "3D Scene Editing"', '/rank "3D Scene Editing" --unread', '/rank "3D Scene Editing" --quick',
+             "/rank --all", '/rank --all --profile "Current Project"'),
             ("Only local folders can be ranked. Semantic Scholar website folders and feeds have no official API.",),
         ),
         CommandSpec(
@@ -346,6 +348,33 @@ SPECS: dict[str, CommandSpec] = {
             "assessment", "assessment", "Validate and store an assessment written by Claude.",
             "assessment record --file assessment.json [--profile NAME] | assessment list <paper>",
             (Opt("--file", "str", "assessment JSON file"), PROFILE, JSON),
+        ),
+        CommandSpec(
+            "judge", "judge", "Judge subagents' 1-100 ratings: write a packet, record ratings, show the re-ranked run.",
+            "judge packet --run RUN [--top N] [--out PATH] | judge record --run RUN --file F [--file F]... | "
+            "judge show --run RUN",
+            (Opt("--run", "str", "run ID printed by recent, discover, rank or a previous judge show"),
+             Opt("--top", "int", "how many of the run's top papers to judge (default: its shortlist, up to 40)",
+                 minimum=1, maximum=40),
+             Opt("--out", "str", "packet path (default: proposals/judge-<run>/packet.json)"),
+             Opt("--file", "multi", "judge output JSON (one per criterion; repeatable)"), VERBOSE, JSON),
+            ("judge packet --run run_20261103T101500_ab12cd --top 15",
+             "judge record --run run_20261103T101500_ab12cd --file relevance.json --file usefulness.json"),
+            ("Used by the /rank, /recent and /discover skills; ratings are validated and stored append-only.",),
+        ),
+        CommandSpec(
+            "download", "download", "Save the arXiv PDFs of a list's top papers, with a reading list, to a local folder.",
+            "download [--top N] [--folder NAME | --run RUN] [--out DIR] [--dry-run]",
+            (Opt("--top", "int", "how many of the list's top papers", minimum=1, maximum=50, default=10),
+             Opt("--folder", "str", "use this local folder's latest /rank list instead of the latest /discover or "
+                                    "/recent list"),
+             Opt("--run", "str", "use this run's list"),
+             Opt("--out", "str", "parent folder (default: PAPERSCOUT_DOWNLOAD_DIR, or Downloads/paperscout)"),
+             DRY_RUN, JSON),
+            ("/download", "/download --top 5", '/download --folder "Baselines"', "/download --top 20 --dry-run"),
+            ("arXiv e-prints only, for your personal use (arXiv's terms don't allow redistributing them); one "
+             "request every 3 s through export.arxiv.org. Papers not on arXiv are listed with their links.",
+             "Files already saved are skipped, so re-running fetches only what's missing."),
         ),
         CommandSpec("capabilities", "capabilities", "Show the integration capability matrix.", "capabilities [--json]",
                     (JSON,)),

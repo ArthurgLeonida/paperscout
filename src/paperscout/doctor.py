@@ -125,6 +125,11 @@ def render(report: dict[str, Any]) -> str:
             lines.append(f"- S2_API_KEY: not configured. Requests use the shared unauthenticated pool. "
                          f"Request a key at {key['how_to_get']} and put it in .env (see README).")
     lines.append(f"- Paper provider: {s['provider']}")
+    if s["openalex"] == "on":
+        lines.append("- Citation counts: OpenAlex for papers without them (keyless; paper identifiers and titles "
+                     "only); turn off with PAPERSCOUT_OPENALEX=off")
+    else:
+        lines.append("- Citation counts: OpenAlex is off (PAPERSCOUT_OPENALEX=off), so popularity is unknown on arXiv")
     lines.append(f"- Request policy: Semantic Scholar ≥{s['s2_min_interval']}s between requests, "
                  f"{s['s2_max_retries']} retries, at most {s['s2_max_requests']} attempts per command; "
                  f"arXiv ≥{s['arxiv_min_interval']}s between requests, at most {s['arxiv_max_requests']} per command")

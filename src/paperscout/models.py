@@ -9,7 +9,7 @@ from __future__ import annotations
 import re
 from datetime import date, datetime, timezone
 from enum import Enum
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
@@ -147,6 +147,7 @@ class Paper(BaseModel):
     publication_types: list[str] | None = None
     fields_of_study: list[str] | None = None
     citation_count: int | None = None
+    citation_source: str | None = None  # semantic-scholar | openalex
     influential_citation_count: int | None = None
     reference_count: int | None = None
     is_open_access: bool | None = None
@@ -220,6 +221,7 @@ class Paper(BaseModel):
             publication_types=data.get("publicationTypes"),
             fields_of_study=fos,
             citation_count=data.get("citationCount"),
+            citation_source="semantic-scholar" if data.get("citationCount") is not None else None,
             influential_citation_count=data.get("influentialCitationCount"),
             reference_count=data.get("referenceCount"),
             is_open_access=data.get("isOpenAccess"),
@@ -415,8 +417,36 @@ class Component(BaseModel):
     basis: str = ""
 
 
+# The criteria of the 1-100 score, in display order. Judged criteria can be rated by Claude subagents.
+CRITERIA = ("relevance", "usefulness", "foundation", "recency", "popularity", "seeds")
+JUDGED_CRITERIA = ("relevance", "usefulness", "foundation")
+CRITERION_LABELS = {
+    "relevance": "Relevance",
+    "usefulness": "Project usefulness",
+    "foundation": "Foundational value",
+    "recency": "Recency",
+    "popularity": "Popularity",
+    "seeds": "Seed similarity",
+}
+
+
+class CriterionScore(BaseModel):
+    """One criterion of the 1-100 score. value=None means unknown: left out of the score, not counted as 0."""
+
+    value: int | None = None
+    source: str = "computed"  # "computed" (Python heuristic) or "judge:<model>" (a Claude subagent's rating)
+    basis: str = ""
+    confidence: Band = Band.unknown  # set for judge ratings
+    weight: float = 0.0  # share of the score this criterion carried (0 when unknown)
+
+    @property
+    def judged(self) -> bool:
+        return self.source.startswith("judge:")
+
+
 class HeuristicAssessment(BaseModel):
-    method: str  # ranking config version, e.g. heuristic-v2
+    method: str  # ranking config version, e.g. score-v3
+    # Lexical signals (0..1) behind the computed criteria; also used by /classify.
     topic_relevance: Component
     project_usefulness: Component
     seed_affinity: Component
@@ -426,7 +456,8 @@ class HeuristicAssessment(BaseModel):
     reading_role: ReadingRole
     role_basis: str
     priority: Priority
-    heuristic_score: float | None  # NOT a probability; for ordering only
+    score: int | None = None  # 1-100 weighted score; NOT a probability or a quality measure
+    criteria: dict[str, CriterionScore] = Field(default_factory=dict)
     reading_depth: ReadingDepth
     effort_minutes: tuple[int, int]  # planning heuristic range
     matched_terms: list[str] = Field(default_factory=list)
@@ -501,3 +532,46 @@ class ClaudeAssessment(BaseModel):
         if self.quality_judgments["code_availability"].lower() != "unknown" and not self.code_verified_source:
             raise ValueError("code_availability needs code_verified_source (independently verified)")
         return self
+
+
+# --------------------------------------------------------------------------- judge ratings
+
+
+class CriterionJudgment(BaseModel):
+    """One judge's 1-100 rating of one paper on one criterion (null score = cannot tell)."""
+
+    paper_id: str
+    score: int | None = Field(default=None, ge=1, le=100)
+    confidence: Literal["high", "medium", "low"]
+    basis: Literal["abstract", "tldr", "metadata", "model_knowledge"]
+    evidence: str = Field(min_length=10, max_length=500)
+
+
+class JudgeBatch(BaseModel):
+    """What a judge subagent returns for a judge packet; validated before anything is stored."""
+
+    criterion: Literal["relevance", "usefulness", "foundation"]
+    run_id: str
+    model: str = Field(min_length=3, max_length=80)
+    prompt_version: str = Field(min_length=3, max_length=80)
+    judgments: list[CriterionJudgment] = Field(min_length=1)
+
+    @model_validator(mode="after")
+    def _unique(self) -> "JudgeBatch":
+        ids = [j.paper_id for j in self.judgments]
+        dupes = sorted({i for i in ids if ids.count(i) > 1})
+        if dupes:
+            raise ValueError(f"papers rated more than once: {dupes}")
+        return self
+
+
+class StoredJudgment(BaseModel):
+    criterion: str
+    score: int | None
+    confidence: Band
+    basis: str
+    evidence: str
+    judge: str  # claude:<model>
+    prompt_version: str
+    run_id: str
+    created_at: datetime

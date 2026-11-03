@@ -155,5 +155,5 @@ def test_report_states_ranking_basis_and_shows_stored_claude_assessment(svc, edi
     })
     code, out = cli.run("assess", [pid(1)], svc=svc)
     assert code == 0
-    assert "deterministic Python heuristic scores (no LLM involved)" in out
+    assert "order = 1-100 score" in out and "Judge ratings: none; every criterion shown was computed" in out
     assert "Stored Claude assessment (claude:claude-test, assess-v1" in out and "not used for ordering" in out
