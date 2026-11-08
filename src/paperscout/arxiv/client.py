@@ -67,6 +67,14 @@ def build_search_query(
     return " AND ".join(parts)
 
 
+def build_category_query(categories: Iterable[str], window: tuple[date, date]) -> str:
+    """Every paper in these categories submitted in the window (the denominator for a search's volume)."""
+    cats = [c for c in categories if _CATEGORY.match(c)]
+    if not cats:
+        raise ValueError("no valid arXiv categories")
+    return ("(" + " OR ".join(f"cat:{c}" for c in cats) + ")"
+            + f" AND submittedDate:[{window[0]:%Y%m%d}0000 TO {window[1]:%Y%m%d}2359]")
+
 def _text(entry: ET.Element, path: str) -> str:
     return " ".join((entry.findtext(path, default="", namespaces=NS) or "").split())
 
@@ -226,6 +234,7 @@ class ArxivClient(ApiClient):
         sort_by: str = "relevance",
         ttl: int | None = None,
         source: str = "arxiv.search",
+        refresh: bool = False,
     ) -> tuple[int | None, list[Paper]]:
         params = {
             "search_query": search_query,
@@ -236,7 +245,7 @@ class ArxivClient(ApiClient):
             "sortOrder": "descending",
         }
         text = self.request("GET", self.settings.arxiv_base, params=params, parse="text",
-                            ttl=ttl or self.settings.cache_ttl.search, source=source)
+                            ttl=ttl or self.settings.cache_ttl.search, source=source, refresh=refresh)
         return parse_feed(text)
 
     def search_papers(

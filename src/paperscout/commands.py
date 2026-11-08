@@ -363,6 +363,26 @@ SPECS: dict[str, CommandSpec] = {
             ("Used by the /rank, /recent and /discover skills; ratings are validated and stored append-only.",),
         ),
         CommandSpec(
+            "trends", "trends", "Count where a field's recent papers are heading: rising and fading terms, "
+            "methods others name, state-of-the-art claims, citation velocity, volume.",
+            "trends [<topic>] [--months N] [--profile NAME] | trends packet --run RUN [--out PATH] | "
+            "trends record --run RUN --file F | trends show --run RUN",
+            (Opt("--months", "int", "how far back, in months; the window is split into calendar quarters",
+                 minimum=6, maximum=36, default=12),
+             PROFILE, Opt("--run", "str", "trends run ID (printed in the report's Run line)"),
+             Opt("--out", "str", "packet path (default: proposals/trends-<run>/packet.json)"),
+             Opt("--file", "str", "the trend analyst's JSON"),
+             Opt("--quick", "flag", "counts only: the /trends skill skips the trend-analyst subagent"),
+             PROVIDER, JSON),
+            ("/trends", "/trends gaussian splatting editing --months 18", "/trends diffusion guidance --quick",
+             "trends packet --run run_20261107T101500_ab12cd",
+             "trends record --run run_20261107T101500_ab12cd --file analysis.json"),
+            ("With no topic, counts your profile's saved searches. One request per search per quarter (arXiv: "
+             "one every 3 s), so 5 searches over 12 months take 1.5-4 minutes; cached quarters are reused.",
+             "Directions are interpretations of counts from a relevance-ranked sample. paperscout never says which "
+             "method is state of the art; it counts the authors' claims."),
+        ),
+        CommandSpec(
             "download", "download", "Save the arXiv PDFs of a list's top papers, with a reading list, to a local folder.",
             "download [--top N] [--folder NAME | --run RUN] [--out DIR] [--dry-run]",
             (Opt("--top", "int", "how many of the list's top papers", minimum=1, maximum=50, default=10),

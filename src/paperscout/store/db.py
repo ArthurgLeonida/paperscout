@@ -437,13 +437,15 @@ class Store:
             )
 
     def previously_surfaced(self, paper_ids: Iterable[str], exclude_runs: Iterable[str] = ()) -> set[str]:
+        """Papers shown in an earlier ranked list. Trend samples are counted, never shown, so they don't count."""
         ids = list(paper_ids)
         if not ids:
             return set()
         excluded = list(exclude_runs) or [""]
         rows = self.conn.execute(
             f"SELECT DISTINCT paper_id FROM run_candidates WHERE paper_id IN ({','.join('?' * len(ids))}) "
-            f"AND run_id NOT IN ({','.join('?' * len(excluded))})",
+            f"AND run_id NOT IN ({','.join('?' * len(excluded))}) "
+            "AND run_id NOT IN (SELECT id FROM runs WHERE kind = 'trends')",
             [*ids, *excluded],
         ).fetchall()
         return {r["paper_id"] for r in rows}

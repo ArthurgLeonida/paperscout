@@ -54,6 +54,7 @@ A Claude subscription doesn't include Anthropic API credits. If unattended batch
 | Ranking config version | `runs.ranking_version` (for example `score-v3`); each assessment carries `method` |
 | Ranking context | `runs.params_json.context`: the relevance target, profile mode, folder, seeds and a context key |
 | Judge ratings | `criterion_judgments` (append-only): run, context key, paper, criterion, score, confidence, basis, reason, model, prompt version |
+| Trend signals and directions | a `trends` run: `params_json.signals` (counts per quarter) and the sampled papers in `run_candidates`; the validated trend-analyst output is stored as a new `trends` run with `analysed_from` and `analysis`. Trend samples are never counted as "seen before" in ranked lists |
 | Evidence level | in each stored assessment (`metadata`, `tldr`, `abstract`, `full_text`) |
 | Model and prompt version | `assessments.assessor` (`claude:<model>`) + `prompt_version` (each skill declares one, for example `assess-v1`) |
 | User feedback | `feedback` (append-only event log; latest applicable event wins, history is kept) |

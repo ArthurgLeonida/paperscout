@@ -339,6 +339,56 @@ def h_judge(svc: Paperscout, p: Parsed, out: Output) -> None:
     _emit_report(svc, svc.rescore_run(run_id), p, out)
 
 
+TREND_ACTIONS = ("packet", "record", "show")
+
+
+def h_trends(svc: Paperscout, p: Parsed, out: Output) -> None:
+    from paperscout import trends
+
+    first = p.positionals[0].lower() if p.positionals else ""
+    run_id = p.get("run")
+    if first in TREND_ACTIONS and (run_id or len(p.positionals) == 1):
+        if len(p.positionals) > 1:
+            raise UsageError(f"Usage: {SPECS['trends'].usage}")
+        if not run_id:
+            raise UsageError(f"trends {first} needs --run RUN_ID (printed in the report's Run line)")
+        if first == "packet":
+            packet = trends.trend_packet(svc, run_id)
+            path = Path(p.get("out") or Path("proposals") / f"trends-{run_id}" / "packet.json")
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(json.dumps(packet, indent=2, ensure_ascii=False), encoding="utf-8")
+            out.write(f"Wrote a trend packet with {len(packet['signals'])} signal(s) and {len(packet['papers'])} "
+                      f"paper(s) to {path} (local file; paper text is marked untrusted).")
+            out.write(f"Next: run the trend-analyst subagent on it, save its JSON next to it, then "
+                      f"`paperscout trends record --run {run_id} --file <analysis.json>`.")
+            return
+        if first == "record":
+            if not p.get("file"):
+                raise UsageError("trends record needs --file analysis.json")
+            data = json.loads(Path(p.get("file")).read_text(encoding="utf-8-sig"))
+            report = trends.record_analysis(svc, run_id, data)
+            out.write(f"Stored the trend analysis (append-only) as run {report.run_id}.")
+            out.write("")
+        else:
+            report = trends.load_report(svc, run_id)
+    else:
+        if run_id or p.get("file") or p.get("out"):
+            raise UsageError("--run, --file and --out go with `trends packet`, `trends record` or `trends show`. "
+                             f"Usage: {SPECS['trends'].usage}")
+        if not p.text and svc.resolve_profile(p.get("profile"))[0] is None:
+            raise UsageError(f"Give a topic, or build a profile with /setup. Usage: {SPECS['trends'].usage}")
+        report = trends.analyse(svc, p.text or None, months=p.get("months"), profile_name=p.get("profile"),
+                                progress=lambda line: print(line, file=sys.stderr, flush=True))
+    markdown = trends.render_trends(report)
+    stem = f"{report.generated_at:%Y%m%d-%H%M%S}-trends-{report.query[:40]}"
+    md_path, json_path = save_report(report, markdown, svc.settings.reports_dir, stem)
+    if p.get("json"):
+        out.write(to_json(report))
+    else:
+        out.write(markdown)
+        out.write(f"_Saved full report: {md_path} and {json_path}_")
+
+
 def h_download(svc: Paperscout, p: Parsed, out: Output) -> None:
     from paperscout.downloads import download_list, render_download
 
@@ -418,8 +468,8 @@ def h_help(svc: Paperscout | None, p: Parsed, out: Output) -> None:
         return
     out.write("# paperscout commands")
     out.write("")
-    slash_order = ["recent", "discover", "rank", "download", "folders", "classify", "add", "assess", "plan", "feedback",
-                   "note", "help"]
+    slash_order = ["recent", "discover", "trends", "rank", "download", "folders", "classify", "add", "assess", "plan",
+                   "feedback", "note", "help"]
     for name in slash_order:
         spec = SPECS[name]
         out.write(f"- `/{spec.slash}`: {spec.summary}")
@@ -460,7 +510,8 @@ def _precheck(name: str, p: Parsed) -> None:
 HANDLERS: dict[str, Callable[..., None]] = {
     "recent": h_recent, "discover": h_discover, "rank": h_rank, "folders": h_folders, "classify": h_classify,
     "add": h_add, "remove": h_remove, "assess": h_assess, "plan": h_plan, "feedback": h_feedback, "note": h_note,
-    "import": h_import, "profile": h_profile, "assessment": h_assessment, "judge": h_judge, "download": h_download,
+    "import": h_import, "profile": h_profile, "assessment": h_assessment, "judge": h_judge, "trends": h_trends,
+    "download": h_download,
     "capabilities": h_capabilities,
     "audit": h_audit, "feedback-log": h_feedback_log, "eval": h_eval, "help": h_help, "init": h_init, "doctor": h_doctor,
 }

@@ -41,6 +41,9 @@ def _stem(word: str) -> str:
     return word
 
 
+stem = _stem  # public name for other modules (trend term counting)
+
+
 def tokenize(text: str | None) -> list[str]:
     if not text:
         return []
