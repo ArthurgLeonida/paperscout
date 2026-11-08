@@ -308,6 +308,8 @@ class ResearchProfile(BaseModel):
     arxiv_categories: list[str] = Field(default_factory=list)  # e.g. ["cs.CV", "cs.GR"]; arXiv provider only
     # Short searches (3-6 words each) run by /recent and /discover when no topic is given.
     search_queries: list[str] = Field(default_factory=list)
+    # Researchers whose papers /authors ranks when no names are given: "First Last @ Affiliation" or an OpenAlex ID.
+    followed_authors: list[str] = Field(default_factory=list)
     weekly_reading_hours: float | None = None
     created_at: datetime | None = None
     updated_at: datetime | None = None
@@ -319,6 +321,16 @@ class ResearchProfile(BaseModel):
         if not value:
             raise ValueError("profile name must not be empty")
         return value
+
+    @field_validator("followed_authors")
+    @classmethod
+    def _authors(cls, value: list[str]) -> list[str]:
+        cleaned: list[str] = []
+        for entry in value:
+            entry = " ".join(entry.split())
+            if entry and entry.lower() not in (e.lower() for e in cleaned):
+                cleaned.append(entry)
+        return cleaned
 
     @field_validator("search_queries")
     @classmethod

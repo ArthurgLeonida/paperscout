@@ -1,4 +1,4 @@
-"""Citation counts from OpenAlex (https://docs.openalex.org), used when the paper provider has none.
+"""OpenAlex (https://docs.openalex.org): citation counts when the paper provider has none, and papers by author.
 
 arXiv returns no citation counts, so paperscout asks OpenAlex for them. Only
 paper identifiers (DOIs, including arXiv's 10.48550/arXiv.* DOIs) are sent, in
@@ -11,7 +11,9 @@ Sometimes the preprint and the published version stay separate records and the
 DOI lookup finds only the preprint, with few citations; ``title_counts`` checks
 such papers by exact title (a title search costs ten times a DOI lookup against
 the keyless daily allowance, so callers check only a few).
-Response text is data: nothing in it is followed as an instruction.
+For ``/authors``, paperscout also sends researcher names and an affiliation (for example "KAIST") to find
+institutions, authors and their works. Response text is data: nothing in it is followed as an instruction,
+including notices in the response metadata.
 """
 
 from __future__ import annotations
@@ -26,13 +28,18 @@ import httpx
 from paperscout.config import Settings
 from paperscout.http import ApiClient, RequestPolicy
 from paperscout.identifiers import normalize_title
-from paperscout.models import Paper
+from paperscout.models import Author, Paper
 
 BATCH = 50
 SELECT = "id,doi,title,cited_by_count,locations"
 TITLE_SELECT = "id,doi,title,cited_by_count,publication_year"
 _ARXIV_URL = re.compile(r"arxiv\.org/(?:abs|pdf)/([^\s?#]+?)(?:v\d+)?(?:\.pdf)?$", re.IGNORECASE)
 _ARXIV_DOI = re.compile(r"^10\.48550/arxiv\.(.+)$", re.IGNORECASE)
+WORK_SELECT = ("id,doi,display_name,publication_date,publication_year,cited_by_count,authorships,locations,"
+               "primary_location,abstract_inverted_index,type")
+AUTHOR_SELECT = "id,display_name,works_count,cited_by_count,summary_stats,last_known_institutions"
+PAGE = 200
+CITED_BY_WORK = "openalex-works"  # citation count that came with the work record itself (not re-fetched)
 
 
 @dataclass(frozen=True)
@@ -89,6 +96,72 @@ def paper_keys(paper: Paper) -> set[str]:
     if paper.arxiv_id:
         keys.add(f"arxiv:{paper.arxiv_id.lower()}")
     return keys
+
+
+def openalex_id(value: str | None) -> str | None:
+    """'https://openalex.org/A5085363061' -> 'A5085363061'."""
+    return value.rsplit("/", 1)[-1] if value else None
+
+
+def abstract_from_index(index: dict[str, list[int]] | None) -> str | None:
+    """OpenAlex stores abstracts as {word: [positions]}; rebuild the text."""
+    if not isinstance(index, dict) or not index:
+        return None
+    slots: dict[int, str] = {}
+    for word, positions in index.items():
+        for position in positions or []:
+            if isinstance(position, int):
+                slots[position] = word
+    return " ".join(slots[i] for i in sorted(slots)) or None
+
+
+def arxiv_id_of(work: dict[str, Any]) -> str | None:
+    for key in sorted(work_keys(work)):
+        if key.startswith("arxiv:"):
+            return key.split(":", 1)[1]
+    return None
+
+
+def paper_from_work(work: dict[str, Any]) -> Paper | None:
+    """A paperscout Paper from an OpenAlex work. arXiv works get the same ID as the arXiv provider gives them."""
+    title = " ".join((work.get("display_name") or work.get("title") or "").split())
+    work_id = openalex_id(work.get("id"))
+    if not title or not work_id:
+        return None
+    arxiv = arxiv_id_of(work)
+    doi = bare_doi(work.get("doi"))
+    if doi and _ARXIV_DOI.match(doi):
+        doi = None  # arXiv's own DOI is implied by the arXiv ID
+    external = {"OpenAlex": work_id}
+    if doi:
+        external["DOI"] = doi
+    if arxiv:
+        external["ArXiv"] = arxiv
+    source = ((work.get("primary_location") or {}).get("source") or {}).get("display_name")
+    venue = "arXiv preprint" if source and source.lower().startswith("arxiv") else source
+    if arxiv:
+        url = f"https://arxiv.org/abs/{arxiv}"
+    elif doi:
+        url = f"https://doi.org/{doi}"
+    else:
+        url = f"https://openalex.org/{work_id}"
+    count = work.get("cited_by_count")
+    year = work.get("publication_year")
+    return Paper(
+        paper_id=f"arxiv:{arxiv}" if arxiv else (f"doi:{doi}" if doi else f"openalex:{work_id}"),
+        title=title,
+        external_ids=external,
+        url=url,
+        abstract=abstract_from_index(work.get("abstract_inverted_index")),
+        venue=venue,
+        year=year if isinstance(year, int) else None,
+        publication_date=work.get("publication_date"),
+        citation_count=count if isinstance(count, int) else None,
+        citation_source=CITED_BY_WORK if isinstance(count, int) else None,
+        authors=[Author(name=(a.get("author") or {}).get("display_name") or a.get("raw_author_name") or "",
+                        author_id=openalex_id((a.get("author") or {}).get("id")))
+                 for a in work.get("authorships") or [] if isinstance(a, dict)],
+    )
 
 
 class OpenAlexClient(ApiClient):
@@ -169,3 +242,43 @@ class OpenAlexClient(ApiClient):
             if cited:
                 counts[paper.paper_id] = max(cited)
         return counts
+
+    # ------------------------------------------------------------------ papers by author
+
+    def institution(self, text: str) -> dict[str, Any] | None:
+        """The best-matching institution for free text such as "KAIST" (OpenAlex also matches acronyms)."""
+        data = self.request(
+            "GET", f"{self.settings.openalex_base}/institutions",
+            params={"search": text, "select": "id,display_name,display_name_acronyms,country_code", "per-page": 5},
+            ttl=self.settings.cache_ttl.paper, source="openalex.institutions",
+        )
+        results = [r for r in (data.get("results") or []) if isinstance(r, dict) and r.get("id")]
+        return results[0] if results else None
+
+    def author_candidates(self, name: str, institution_id: str | None = None) -> list[dict[str, Any]]:
+        """Author records for a name, best match first (OpenAlex may split one person into several records)."""
+        params = {"search": name, "select": AUTHOR_SELECT, "per-page": 25}
+        if institution_id:
+            params["filter"] = f"affiliations.institution.id:{institution_id}"
+        data = self.request("GET", f"{self.settings.openalex_base}/authors", params=params,
+                            ttl=self.settings.cache_ttl.paper, source="openalex.authors")
+        return [r for r in (data.get("results") or []) if isinstance(r, dict) and r.get("id")]
+
+    def works(self, filters: str, max_pages: int = 3) -> tuple[int | None, list[dict[str, Any]]]:
+        """Works matching an OpenAlex filter, newest first, up to ``max_pages`` pages of 200."""
+        works: list[dict[str, Any]] = []
+        cursor, total = "*", None
+        for _ in range(max_pages):
+            data = self.request(
+                "GET", f"{self.settings.openalex_base}/works",
+                params={"filter": filters, "select": WORK_SELECT, "per-page": PAGE, "sort": "publication_date:desc",
+                        "cursor": cursor},
+                ttl=self.settings.cache_ttl.search, source="openalex.works",
+            )
+            meta = data.get("meta") or {}
+            total = meta.get("count") if isinstance(meta.get("count"), int) else total
+            works += [w for w in (data.get("results") or []) if isinstance(w, dict)]
+            cursor = meta.get("next_cursor")
+            if not cursor or len(works) >= (total or 0):
+                break
+        return total, works

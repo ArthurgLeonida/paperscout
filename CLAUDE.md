@@ -2,7 +2,7 @@
 
 In this repository Claude acts as a research reading advisor for the person using it. The job is to answer "which papers should I read for my research goal, why, in what order, and at what depth?" using paperscout and the official arXiv and Semantic Scholar APIs (arXiv without a key; `uv run -q paperscout doctor` shows which is active):
 
-1. **Discovery:** `/recent`, `/discover` (with no topic they run the profile's saved searches)
+1. **Discovery:** `/recent`, `/discover` (with no topic they run the profile's saved searches), `/authors` (papers by named researchers, through OpenAlex), `/trends` (where a field is heading)
 2. **Organisation:** `/folders`, `/classify`, `/add`
 3. **Prioritisation:** `/rank`, `/assess`, `/reading-plan`, and `/download` for the top papers' arXiv PDFs
 4. **Learning support:** `/note`, `/paper-feedback`

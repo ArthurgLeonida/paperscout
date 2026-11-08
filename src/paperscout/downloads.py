@@ -23,7 +23,7 @@ from paperscout.models import CRITERIA, HeuristicAssessment, Priority, Provenanc
 from paperscout.reports import criterion_line, effort_text, paper_date, sanitize_untrusted
 from paperscout.service import Paperscout, ServiceError
 
-LIST_KINDS = ("recent", "discover")
+LIST_KINDS = ("recent", "discover", "authors")
 MAX_TOP = 50
 INDEX_NAME = "reading-list.md"
 _UNSAFE = re.compile(r'[<>:"/\\|?*\x00-\x1f]')
@@ -83,7 +83,7 @@ def _source_run(svc: Paperscout, run_id: str | None, folder: str | None) -> dict
         return run
     run = svc.store.latest_run(LIST_KINDS)
     if run is None:
-        raise ServiceError("No /discover or /recent list yet. Run one first, or pass --folder or --run.")
+        raise ServiceError("No /discover, /recent or /authors list yet. Run one first, or pass --folder or --run.")
     return run
 
 

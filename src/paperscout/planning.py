@@ -77,7 +77,7 @@ def _pool(svc: Paperscout, folder: str | None, profile_id: str | None, notices: 
             seen[pid] = Candidate(paper=paper, provenance=[Provenance(source="feedback.read_later")])
     if seen:
         return list(seen.values()), "unread papers in all local folders + papers marked read_later"
-    run = svc.store.latest_run(("recent", "discover"))
+    run = svc.store.latest_run(("recent", "discover", "authors"))
     if run:
         rows = svc.store.run_candidates(run["id"])[:25]
         papers = svc.store.get_papers(r["paper_id"] for r in rows)

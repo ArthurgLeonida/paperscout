@@ -87,6 +87,7 @@ Ask conversationally, a few questions at a time, and let the user answer in thei
    - `knowledge`: every confirmed knowledge-map row, as `{topic, level, evidence}`
    - `arxiv_categories`: the optional arXiv categories, such as `["cs.CV", "cs.GR"]`, or `[]`
    - `search_queries`: the confirmed saved searches
+   - `followed_authors`: optional researchers to follow, each "First Last @ Affiliation" (`/authors` with no names uses them); leave it empty unless the user names people
    - `weekly_reading_hours`
 
    Show the JSON, then run `uv run -q paperscout profile sync`. It rejects leftover placeholders and invalid values; fix the file and retry. It also makes this the active profile.

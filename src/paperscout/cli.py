@@ -339,6 +339,16 @@ def h_judge(svc: Paperscout, p: Parsed, out: Output) -> None:
     _emit_report(svc, svc.rescore_run(run_id), p, out)
 
 
+def h_authors(svc: Paperscout, p: Parsed, out: Output) -> None:
+    from paperscout.authors import discover_authors
+
+    report = discover_authors(svc, p.positionals, affiliation=p.get("affiliation"), days=p.get("days"),
+                              since=p.get("since"), until=p.get("until"), topic=p.get("topic"),
+                              profile_name=p.get("profile"), limit=p.get("limit"),
+                              include_read=p.get("include_read"), quick=p.get("quick"))
+    _emit_report(svc, report, p, out)
+
+
 TREND_ACTIONS = ("packet", "record", "show")
 
 
@@ -468,7 +478,7 @@ def h_help(svc: Paperscout | None, p: Parsed, out: Output) -> None:
         return
     out.write("# paperscout commands")
     out.write("")
-    slash_order = ["recent", "discover", "trends", "rank", "download", "folders", "classify", "add", "assess", "plan",
+    slash_order = ["recent", "discover", "authors", "trends", "rank", "download", "folders", "classify", "add", "assess", "plan",
                    "feedback", "note", "help"]
     for name in slash_order:
         spec = SPECS[name]
@@ -510,7 +520,7 @@ def _precheck(name: str, p: Parsed) -> None:
 HANDLERS: dict[str, Callable[..., None]] = {
     "recent": h_recent, "discover": h_discover, "rank": h_rank, "folders": h_folders, "classify": h_classify,
     "add": h_add, "remove": h_remove, "assess": h_assess, "plan": h_plan, "feedback": h_feedback, "note": h_note,
-    "import": h_import, "profile": h_profile, "assessment": h_assessment, "judge": h_judge, "trends": h_trends,
+    "import": h_import, "profile": h_profile, "assessment": h_assessment, "judge": h_judge, "trends": h_trends, "authors": h_authors,
     "download": h_download,
     "capabilities": h_capabilities,
     "audit": h_audit, "feedback-log": h_feedback_log, "eval": h_eval, "help": h_help, "init": h_init, "doctor": h_doctor,

@@ -363,6 +363,24 @@ SPECS: dict[str, CommandSpec] = {
             ("Used by the /rank, /recent and /discover skills; ratings are validated and stored append-only.",),
         ),
         CommandSpec(
+            "authors", "authors", "Rank the recent papers of specific researchers for you (OpenAlex; each paper "
+            "matched on its author list by name and affiliation).",
+            'authors <name>[ @ affiliation][; <name>...] [--affiliation TEXT] [--days N | --since YYYY-MM-DD] '
+            "[--until YYYY-MM-DD] [--topic TEXT] [--profile NAME] [--limit N] [--include-read]",
+            (Opt("--affiliation", "str", "institution for every name without its own '@ affiliation', e.g. KAIST"),
+             Opt("--days", "int", "window length in days (default 730)", minimum=1, maximum=3650),
+             Opt("--since", "date", "window start (YYYY-MM-DD)"), Opt("--until", "date", "window end (default today)"),
+             Opt("--topic", "str", "rank against this topic instead of your profile"),
+             PROFILE, SHORTLIST, INCLUDE_READ, QUICK, VERBOSE, JSON),
+            ("/authors Seungryong Kim --affiliation KAIST", "/authors Seungryong Kim; Jane Doe @ MIT --days 365",
+             '/authors Seungryong Kim --affiliation KAIST --topic "3D scene editing"',
+             "/authors   (no names: the followed_authors in your profile)"),
+            ("Separate names with ';' or ','. Write names as First Last; an OpenAlex author ID (A...) also works.",
+             "With an affiliation, a paper counts only if one of its authors has both the name and the institution, "
+             "so OpenAlex splitting a person into several records doesn't lose papers.",
+             "Researcher names and affiliations are sent to OpenAlex (keyless, shared daily allowance)."),
+        ),
+        CommandSpec(
             "trends", "trends", "Count where a field's recent papers are heading: rising and fading terms, "
             "methods others name, state-of-the-art claims, citation velocity, volume.",
             "trends [<topic>] [--months N] [--profile NAME] | trends packet --run RUN [--out PATH] | "

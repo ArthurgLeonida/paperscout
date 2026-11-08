@@ -85,9 +85,10 @@ Run these in Claude Code, opened in this folder. Topics need no quotes (`/recent
 |---|---|---|
 | `/recent [topic]` | Recently published papers, ranked for you. Default window: 90 days (`--days N`, `--since`, `--until`) | `/recent diffusion guidance --days 30` |
 | `/discover [topic]` | A balanced reading list (prerequisites, surveys, methods) with no date limit | `/discover flow matching` |
+| `/authors <names>` | Papers by specific researchers (a lab, a department's faculty), ranked for you. Default window: 2 years | `/authors Seungryong Kim --affiliation KAIST` |
 | `/trends [topic]` | Where a field is heading: terms rising or fading per quarter, methods papers name, claims, citation velocity | `/trends --months 18` |
 
-With no topic, all three use the saved searches in your profile. Add `--quick` to skip the Claude judges and get computed scores in seconds. `--limit N` sets the list length (default 20, up to 50).
+With no topic, `/recent`, `/discover` and `/trends` use the saved searches in your profile, and `/authors` with no names uses the researchers you follow. Add `--quick` to skip the Claude judges and get computed scores in seconds. `--limit N` sets the list length (default 20, up to 50).
 
 ### Organise
 
@@ -129,6 +130,8 @@ Feedback labels: `relevant`, `irrelevant`, `already_known`, `read_later`, `read_
 **Papers for my project this week.** Run `/recent` (or `/discover`) with no topic. It runs your saved searches, merges the results and ranks them against your profile. Then use `/download` and `/reading-plan --week`.
 
 **Checking related work before a submission.** Run `/discover <your topic>` for established work, `/recent <your topic> --days 180` for the latest, and `/trends` to see what reviewers may expect. `/assess` any paper you're unsure about.
+
+**Following researchers or a lab.** Run `/authors Seungryong Kim; <another name> --affiliation KAIST`. Each paper counts only if the name and the institution appear together on its author list, so namesakes elsewhere are left out. Name the people, not the school: if you give a school or lab, Claude can read its official faculty page and let you pick. To follow them, save them as `followed_authors` in your profile, and `/authors` with no names will use them. Details: [docs/authors.md](docs/authors.md).
 
 **Seeing where the field is heading.** Run `/trends` for your saved searches, or `/trends gaussian splatting editing --months 18` for one topic. Broader searches give bigger samples and firmer counts.
 
@@ -213,6 +216,8 @@ paperscout runs entirely on your computer. There's no shared server, and the pro
 
 On arXiv, reports say plainly what's missing: there are no recommendations or reference lists, so shared prerequisites aren't inferred.
 
+**OpenAlex** (keyless) fills two gaps whichever source you use: citation counts on arXiv (only paper identifiers and a few titles are sent) and `/authors`, which sends the researcher names and affiliation you give it. Keyless OpenAlex requests share a small free daily allowance per network. `PAPERSCOUT_OPENALEX=off` turns both off.
+
 **Adding a Semantic Scholar key (optional)**
 
 ```bash
@@ -235,7 +240,7 @@ All settings are optional. Put them in `.env` or set them as environment variabl
 | `PAPERSCOUT_HOME` | `%LOCALAPPDATA%\paperscout` on Windows, `~/.local/share/paperscout` elsewhere | Where the database, cache, reports and notes live |
 | `PAPERSCOUT_DOWNLOAD_DIR` | `Downloads/paperscout` | Where `/download` saves PDFs |
 | `PAPERSCOUT_RECENT_DAYS` | `90` | Default `/recent` window |
-| `PAPERSCOUT_OPENALEX` | `on` | Citation counts from OpenAlex when using arXiv |
+| `PAPERSCOUT_OPENALEX` | `on` | OpenAlex: citation counts when using arXiv, and `/authors` |
 | `PAPERSCOUT_ARXIV_MAX_REQUESTS` | `10` | Maximum HTTP attempts to arXiv per command (`/trends` sizes its own budget, up to 80) |
 | `PAPERSCOUT_S2_MAX_REQUESTS` | `40` | Maximum HTTP attempts to Semantic Scholar per command |
 
@@ -295,6 +300,7 @@ Semantic Scholar website folders and Research Feeds have **no official API**, so
 - [Architecture](docs/architecture.md): service layer, Claude authentication strategy, provenance, write safety
 - [Research background](docs/background.md): what `/setup` builds, how Claude and the ranking use it, privacy
 - [Ranking](docs/ranking.md): the 1–100 score, criteria and weights, judge subagents, OpenAlex citations, depth adjustments, evidence limits
+- [Authors](docs/authors.md): how `/authors` matches researchers to papers, and its limits
 - [Trends](docs/trends.md): what `/trends` counts, the support labels, the trend analyst and its checks, request limits
 - [Evaluation](docs/evaluation.md): building your labelled set and comparing against baselines
 - [Validation status](docs/validation.md): what has been tested live, with mocks, or not at all
@@ -303,7 +309,7 @@ Semantic Scholar website folders and Research Feeds have **no official API**, so
 
 | Step | Scope | Status |
 |---|---|---|
-| Phase 1 | Research background (`/setup`), folders, arXiv and Semantic Scholar discovery, 1–100 scoring with judge subagents and OpenAlex citations, reports, feedback, reading plans, `/download`, `/trends` | Implemented; live Semantic Scholar validation pending |
+| Phase 1 | Research background (`/setup`), folders, arXiv and Semantic Scholar discovery, 1–100 scoring with judge subagents and OpenAlex citations, reports, feedback, reading plans, `/download`, `/authors`, `/trends` | Implemented; live Semantic Scholar validation pending |
 | Next | Read-only Zotero integration: list collections, rank a collection, skip papers already in your library | Planned |
 | Later | Scheduled discovery, permitted full-text assessment, bulk search. An MCP server only if it adds something the slash commands can't. Zotero writes only with a preview and explicit confirmation | Not started |
 

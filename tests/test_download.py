@@ -124,7 +124,7 @@ def test_folder_downloads_follow_its_latest_ranking(svc, editing_profile):
 
 
 def test_without_any_list_the_error_says_what_to_run(svc):
-    with pytest.raises(ServiceError, match="No /discover or /recent list yet"):
+    with pytest.raises(ServiceError, match="No /discover, /recent or /authors list yet"):
         download_list(svc)
     with pytest.raises(ServiceError, match="No run"):
         download_list(svc, run_id="run_missing")

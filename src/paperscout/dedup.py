@@ -25,6 +25,8 @@ def _keys(paper: Paper) -> list[str]:
     return keys
 
 
+identity_keys = _keys  # public: the keys two records of one paper share
+
 def _richer(a: Paper, b: Paper) -> Paper:
     if b.evidence_level.rank > a.evidence_level.rank:
         return b

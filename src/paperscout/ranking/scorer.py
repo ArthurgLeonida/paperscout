@@ -55,7 +55,7 @@ DEFAULT_CONFIG = "score-v3"
 _SURVEY = re.compile(r"\b(survey|review|overview|tutorial|primer|state of the art)\b", re.IGNORECASE)
 _BENCH = re.compile(r"\b(benchmark|dataset|challenge|leaderboard)\b", re.IGNORECASE)
 BACKGROUND_ROLES = (ReadingRole.foundational, ReadingRole.prerequisite, ReadingRole.survey)
-CITATION_SOURCES = {"semantic-scholar": "Semantic Scholar", "openalex": "OpenAlex"}
+CITATION_SOURCES = {"semantic-scholar": "Semantic Scholar", "openalex": "OpenAlex", "openalex-works": "OpenAlex"}
 STRONG = 85  # deep reads need two criteria at or above this (judges rate good matches 70-90 routinely)
 
 

@@ -25,7 +25,7 @@ RANKING_BASIS = (
     "background. Neither is a probability or a quality measure, and differences under about 10 points are not "
     "meaningful. Claude's commentary and stored Claude assessments do not change the order"
 )
-DISCOVERY_KINDS = {"recent", "discover"}
+DISCOVERY_KINDS = {"recent", "discover", "authors"}
 PRIORITY_ORDER = [p.value for p in Priority]
 GLANCE_TITLE_LIMIT = 90
 
@@ -58,6 +58,7 @@ class RankingReport(BaseModel):
     items: list[RankedPaper] = Field(default_factory=list)
     sections: list[FolderSection] = Field(default_factory=list)
     excluded: list[ExcludedPaper] = Field(default_factory=list)
+    researchers: list[dict[str, Any]] = Field(default_factory=list)  # /authors: how each name was matched
     stats: dict[str, Any] = Field(default_factory=dict)
 
 
@@ -103,6 +104,11 @@ def paper_ids(paper: Paper) -> str:
 def provenance_text(item: RankedPaper, limit: int = 3) -> str:
     seen = []
     for p in item.provenance:
+        if p.source == "openalex.author":
+            desc = f"OpenAlex: papers by {p.seed}" + (f" at {p.detail}" if p.detail else "")
+            if desc not in seen:
+                seen.append(desc)
+            continue
         desc = p.source
         if p.rank:
             desc += f" #{p.rank}"
@@ -224,6 +230,9 @@ def is_judged(item: RankedPaper) -> bool:
 def glance_notes(item: RankedPaper, kind: str, any_judged: bool) -> str:
     a = item.assessment
     notes = []
+    by = list(dict.fromkeys(p.seed for p in item.provenance if p.source == "openalex.author" and p.seed))
+    if by:
+        notes.append("by " + ", ".join(table_text(name) for name in by))
     if kind in DISCOVERY_KINDS:
         notes.append("seen before" if item.seen_before else "new")
     if item.folders:
@@ -305,6 +314,14 @@ def render_ranking(report: RankingReport, verbose: bool = False) -> str:
     if glance:
         lines += [glance_summary(report, report.items), ""]
         lines += glance_table(report.items, report.kind) + [""]
+    if report.researchers:
+        lines += ["## Researchers", "", "| Researcher | Matched as | Institution | Papers in window | Note |",
+                  "|---|---|---|---|---|"]
+        for r in report.researchers:
+            lines.append(f"| {table_text(r.get('researcher'))} | {table_text(r.get('matched_as'))} | "
+                         f"{table_text(r.get('institution'))} | {r.get('papers', 0)} | {table_text(r.get('note'))} |")
+        lines.append("")
+    if glance:
         lines += ["## About this list", ""]
     meta = [
         f"- Source: {report.source}",
