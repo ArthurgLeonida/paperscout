@@ -99,3 +99,19 @@ def test_slash_rejects_split_arguments(capsys):
     # What Windows PowerShell 5.1 produces for --args '"3D Scene Editing" --unread'
     code = cli.main(["slash", "rank", "--args", "3D", "Scene", "Editing --unread"])
     assert code == 2 and "exactly ONE string" in capsys.readouterr().out
+
+
+def test_ranking_report_opens_with_summary_and_table(svc, editing_profile):
+    code, out = run(svc, "discover", "text-guided gaussian scene editing", "--limit", "4")
+    assert code == 0
+    summary, table = out.index("papers shortlisted"), out.index("| # | Score | Priority | Paper |")
+    about, details = out.index("## About this list"), out.index("## Details")
+    assert summary < table < about < details < out.index("### 1. ")
+    rows = [line for line in out.splitlines() if line.startswith("| ") and not line.startswith("| #")]
+    assert len(rows) == 4 and rows[0].startswith("| 1 | ")
+    assert "new" in rows[0] and "untrusted paper text" in out
+
+
+def test_single_paper_report_has_no_table(svc, editing_profile):
+    code, out = run(svc, "assess", pid(1))
+    assert code == 0 and "| # | Score |" not in out and "## Details" not in out

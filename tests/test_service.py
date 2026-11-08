@@ -1,10 +1,11 @@
 from datetime import date
+from types import SimpleNamespace
 
 import pytest
 
 from paperscout.capabilities import UnsupportedCapability
-from paperscout.models import FeedbackLabel, Priority, ResearchProfile
-from paperscout.service import ServiceError
+from paperscout.models import FeedbackLabel, Priority, ReadingRole, ResearchProfile
+from paperscout.service import Paperscout, ServiceError
 
 from .conftest import pid
 
@@ -107,6 +108,16 @@ def test_discover_adds_prerequisites_and_balances_roles(svc, editing_profile):
     prereq = [i for i in report.items if any(p.source == "s2.references" for p in i.provenance)]
     assert prereq, "papers cited by several top results should be surfaced"
 
+
+def test_balancing_a_full_list_keeps_every_added_context_paper():
+    def item(title, role):
+        return SimpleNamespace(paper=SimpleNamespace(title=title), assessment=SimpleNamespace(reading_role=role))
+    methods = [item(f"method {n}", ReadingRole.method) for n in range(4)]
+    survey, foundation = item("survey", ReadingRole.survey), item("foundation", ReadingRole.foundational)
+    notices = []
+    selected = Paperscout._balance(methods + [survey, foundation], methods[:3], 3, notices)
+    assert [s.paper.title for s in selected] == ["method 0", "survey", "foundation"]
+    assert len(notices) == 2
 
 def test_cached_results_and_reranking_after_feedback(svc, editing_profile, fake_s2):
     first = svc.recent("text-guided gaussian scene editing", days=120)

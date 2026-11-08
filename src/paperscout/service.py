@@ -886,6 +886,7 @@ class Paperscout:
     def _balance(shown: list[RankedPaper], selected: list[RankedPaper], limit: int, notices: list[str]) -> list[RankedPaper]:
         """Ensure discovery shortlists include context papers (survey / foundational) when available."""
         selected = list(selected)
+        added: list[RankedPaper] = []
         wanted = [
             (ReadingRole.survey,),
             (ReadingRole.foundational, ReadingRole.prerequisite),
@@ -897,8 +898,13 @@ class Paperscout:
             if extra is None:
                 continue
             if len(selected) >= limit:
-                selected.pop()
+                # Make room by dropping the lowest-ranked paper that wasn't itself added for balance.
+                drop = next((r for r in reversed(selected) if r not in added), None)
+                if drop is None:
+                    break
+                selected.remove(drop)
             selected.append(extra)
+            added.append(extra)
             notices.append(f"Added '{extra.paper.title[:60]}' to balance the list with a {extra.assessment.reading_role.value} paper.")
         return selected
 
@@ -1319,8 +1325,9 @@ class Paperscout:
             ranking_version=self.config.version, profile_name=profile.name if profile else None,
             profile_mode=context["mode"], source=meta["source"], query=run["query"],
             date_window=meta.get("date_window"), notices=notices, items=selected,
-            stats={"rescored_from": run_id, "ranked": len(ranked), "judged": judged_count(ranked),
-                   "shown": len(selected), **self.api_stats()},
+            stats={"rescored_from": run_id, "ranked": len(ranked),
+                   **({"below_threshold": len(ranked) - len(shown)} if meta.get("hide_skip") else {}),
+                   "judged": judged_count(ranked), "shown": len(selected), **self.api_stats()},
         )
 
     # ================================================================== folder membership
