@@ -38,7 +38,7 @@ The report's *Researchers* table shows, for each name, how it was matched, the i
 - **Ranking:** papers are ranked against your profile (saved searches, keywords, research question), or against `--topic`. The shortlist is 20 papers by default (`--limit`, up to 50), and the judges rate it like any other list.
 - **Requests:** one per affiliation, plus one to three per researcher (pages of 200 works). The per-command OpenAlex budget is sized to that, up to 120.
 - **Limit per run:** at most 30 researchers.
-- **What's sent:** researcher names and the affiliation go to OpenAlex. Keyless requests share a small free daily allowance per network, and nothing else from your background is sent.
+- **What's sent:** researcher names and the affiliation go to OpenAlex, and nothing else from your background. Without a key, requests share a small free daily allowance per network; `OPENALEX_API_KEY` in `.env` gives you your own. Each report shows how much of today's allowance is left.
 
 ## Following researchers
 

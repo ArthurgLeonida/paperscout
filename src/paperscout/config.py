@@ -149,6 +149,7 @@ class Settings:
     openalex: bool = False
     openalex_base: str = OPENALEX_API
     openalex_max_requests: int = 10
+    openalex_api_key: str | None = None  # sent as the api_key parameter; never cached, logged or shown
     cache_ttl: CacheTTL = field(default_factory=CacheTTL)
     key_source: str = "not set"  # "environment" | ".env: <path>" | "not set"
     env_files_loaded: tuple[str, ...] = ()
@@ -196,6 +197,7 @@ class Settings:
             "arxiv_min_interval": self.arxiv_min_interval,
             "arxiv_max_requests": self.arxiv_max_requests,
             "openalex": "on" if self.openalex else "off",
+            "openalex_api_key": "set" if self.openalex_api_key else "not set",
             "downloads_dir": str(self.downloads_dir),
         }
 
@@ -230,6 +232,7 @@ def load_settings(cwd: Path | None = None) -> Settings:
         arxiv_max_requests=_int("PAPERSCOUT_ARXIV_MAX_REQUESTS", 10),
         openalex=os.environ.get("PAPERSCOUT_OPENALEX", "on").strip().lower() not in ("off", "0", "false", "no"),
         openalex_max_requests=_int("PAPERSCOUT_OPENALEX_MAX_REQUESTS", 10),
+        openalex_api_key=(os.environ.get("OPENALEX_API_KEY") or "").strip() or None,
         download_dir=Path(download_env).expanduser().resolve() if download_env else None,
         download_max_mb=_int("PAPERSCOUT_DOWNLOAD_MAX_MB", 100),
         key_source=source if key else "not set",

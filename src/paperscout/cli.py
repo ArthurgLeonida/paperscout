@@ -40,7 +40,15 @@ class Output:
 # --------------------------------------------------------------------------- helpers
 
 
+def _openalex_notice(svc: Paperscout, notices: list[str]) -> None:
+    """How much of today's OpenAlex allowance is left, when this command contacted OpenAlex."""
+    text = svc.openalex.allowance_text() if svc.openalex.network_calls else None
+    if text and text not in notices:
+        notices.append(text)
+
+
 def _emit_report(svc: Paperscout, report: RankingReport, p: Parsed, out: Output) -> None:
+    _openalex_notice(svc, report.notices)
     markdown = render_ranking(report, verbose=bool(p.get("verbose")))
     stem = f"{report.generated_at:%Y%m%d-%H%M%S}-{report.kind}-{(report.query or report.heading)[:40]}"
     md_path, json_path = save_report(report, render_ranking(report, verbose=True), svc.settings.reports_dir, stem)
@@ -389,6 +397,7 @@ def h_trends(svc: Paperscout, p: Parsed, out: Output) -> None:
             raise UsageError(f"Give a topic, or build a profile with /setup. Usage: {SPECS['trends'].usage}")
         report = trends.analyse(svc, p.text or None, months=p.get("months"), profile_name=p.get("profile"),
                                 progress=lambda line: print(line, file=sys.stderr, flush=True))
+    _openalex_notice(svc, report.notices)
     markdown = trends.render_trends(report)
     stem = f"{report.generated_at:%Y%m%d-%H%M%S}-trends-{report.query[:40]}"
     md_path, json_path = save_report(report, markdown, svc.settings.reports_dir, stem)

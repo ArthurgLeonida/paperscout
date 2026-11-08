@@ -216,7 +216,7 @@ paperscout runs entirely on your computer. There's no shared server, and the pro
 
 On arXiv, reports say plainly what's missing: there are no recommendations or reference lists, so shared prerequisites aren't inferred.
 
-**OpenAlex** (keyless) fills two gaps whichever source you use: citation counts on arXiv (only paper identifiers and a few titles are sent) and `/authors`, which sends the researcher names and affiliation you give it. Keyless OpenAlex requests share a small free daily allowance per network. `PAPERSCOUT_OPENALEX=off` turns both off.
+**OpenAlex** (keyless) fills two gaps whichever source you use: citation counts on arXiv (only paper identifiers and a few titles are sent) and `/authors`, which sends the researcher names and affiliation you give it. Without a key, OpenAlex requests share a small free daily allowance with everyone on your network. A free key from [openalex.org/settings/api](https://openalex.org/settings/api), set as `OPENALEX_API_KEY` in `.env`, gives you your own. Reports show how much of today's allowance is left, and `PAPERSCOUT_OPENALEX=off` turns OpenAlex off.
 
 **Adding a Semantic Scholar key (optional)**
 
@@ -224,7 +224,7 @@ On arXiv, reports say plainly what's missing: there are no recommendations or re
 cp .env.example .env                  # Windows PowerShell: Copy-Item .env.example .env
 # edit .env and set:  S2_API_KEY=<your key>   (no quotes needed)
 git check-ignore -v .env              # must print a .gitignore rule, so .env is never committed
-uv run -q paperscout doctor --live    # sends ONE request and shows the result
+uv run -q paperscout doctor --live    # one request to the paper source and one to OpenAlex; shows the results
 ```
 
 The key is sent only in the `x-api-key` header and is never logged. It's personal: never commit or share it, because the [API License Agreement](https://www.semanticscholar.org/product/api/license) doesn't allow redistributing access.
@@ -236,6 +236,7 @@ All settings are optional. Put them in `.env` or set them as environment variabl
 | Setting | Default | What it does |
 |---|---|---|
 | `S2_API_KEY` | none | Your Semantic Scholar key |
+| `OPENALEX_API_KEY` | none | Your free [OpenAlex key](https://openalex.org/settings/api): your own daily allowance instead of one shared by your network |
 | `PAPERSCOUT_PROVIDER` | `auto` | `auto` uses Semantic Scholar with a key and arXiv without. Force `arxiv` or `semantic-scholar` here, or per command with `--provider` |
 | `PAPERSCOUT_HOME` | `%LOCALAPPDATA%\paperscout` on Windows, `~/.local/share/paperscout` elsewhere | Where the database, cache, reports and notes live |
 | `PAPERSCOUT_DOWNLOAD_DIR` | `Downloads/paperscout` | Where `/download` saves PDFs |
@@ -291,6 +292,7 @@ Semantic Scholar website folders and Research Feeds have **no official API**, so
 | `HTTP 429` (rate limited) | Semantic Scholar without a key is often throttled. Wait, use arXiv, or request a key. Errors show sanitized diagnostics, never the key |
 | "Request budget … is spent" | The per-command cap was reached and nothing more was sent. Run again later (cached results are reused) or raise the cap in `.env` |
 | Windows PowerShell splits quoted arguments | Use the plain form, `uv run -q paperscout rank "3D Scene Editing"`, or pipe the raw arguments: `'"3D Scene Editing" --unread' \| uv run -q paperscout slash rank`. Slash commands in Claude Code aren't affected |
+| OpenAlex allowance running low, or OpenAlex `HTTP 429` | Add a free `OPENALEX_API_KEY` to `.env`. `uv run -q paperscout doctor --live` shows how much is left today and when it resets |
 | uv warns that `VIRTUAL_ENV … does not match` | Harmless (for example with pyenv); `uv run -q` hides it |
 | A new command or agent doesn't appear | Restart Claude Code in this folder. Project skills and agents load when a session starts |
 

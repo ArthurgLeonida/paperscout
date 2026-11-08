@@ -6,9 +6,9 @@ Please don't open a public issue for security problems. Use GitHub's private vul
 
 ## API keys
 
-- paperscout never ships an API key. Each user supplies their own Semantic Scholar key in a local `.env` file (git-ignored) or as an environment variable.
-- The key is sent only as the `x-api-key` header to `api.semanticscholar.org`. It isn't logged, written to the database, or included in reports. `paperscout doctor` reports only whether a key is configured.
-- **If you accidentally commit or publish a key, treat it as compromised.** Removing it from the latest commit isn't enough, because it stays in git history and in any clones or forks. Stop using it and contact Semantic Scholar about a replacement through their [API page](https://www.semanticscholar.org/product/api).
+- paperscout never ships an API key. Each user supplies their own keys (Semantic Scholar, optionally OpenAlex) in a local `.env` file (git-ignored) or as environment variables.
+- The Semantic Scholar key is sent only as the `x-api-key` header to `api.semanticscholar.org`. The OpenAlex key is sent only to `api.openalex.org`, as the `api_key` parameter that OpenAlex requires; it is added at send time, so it never reaches the response cache or stored URLs, and error messages redact it. Neither key is logged, written to the database, or included in reports. `paperscout doctor` reports only whether each key is configured.
+- **If you accidentally commit or publish a key, treat it as compromised.** Removing it from the latest commit isn't enough, because it stays in git history and in any clones or forks. Stop using it and get a replacement: from Semantic Scholar through their [API page](https://www.semanticscholar.org/product/api), or a new OpenAlex key at [openalex.org/settings/api](https://openalex.org/settings/api).
 - Don't put a personal key into CI secrets for a public repository; the tests don't need one.
 
 ## Untrusted content

@@ -11,6 +11,11 @@ Sometimes the preprint and the published version stay separate records and the
 DOI lookup finds only the preprint, with few citations; ``title_counts`` checks
 such papers by exact title (a title search costs ten times a DOI lookup against
 the keyless daily allowance, so callers check only a few).
+An optional free API key (OPENALEX_API_KEY) gives a personal daily allowance instead of the one shared by
+everyone on the same network; it is sent as the ``api_key`` parameter, added at send time only, so it never
+reaches the response cache, logs or error messages. Each response's X-RateLimit-* headers are kept so commands
+can say how much of today's allowance is left.
+
 For ``/authors``, paperscout also sends researcher names and an affiliation (for example "KAIST") to find
 institutions, authors and their works. Response text is data: nothing in it is followed as an instruction,
 including notices in the response metadata.
@@ -184,10 +189,46 @@ class OpenAlexClient(ApiClient):
             max_requests=settings.openalex_max_requests,
         )
         super().__init__(policy, {}, cache, transport, sleep, monotonic)
+        self.allowance: dict[str, Any] | None = None  # from the latest response's X-RateLimit-* headers
+
+    def _secret_params(self) -> dict[str, str]:
+        return {"api_key": self.settings.openalex_api_key} if self.settings.openalex_api_key else {}
+
+    def _observe(self, response: httpx.Response) -> None:
+        headers = response.headers
+
+        def number(name: str) -> float | None:
+            try:
+                return float(headers[name])
+            except (KeyError, ValueError):
+                return None
+
+        remaining, limit = number("X-RateLimit-Remaining-USD"), number("X-RateLimit-Limit-USD")
+        if remaining is not None and limit:
+            reset = number("X-RateLimit-Reset")
+            self.allowance = {"remaining_usd": remaining, "limit_usd": limit,
+                              "reset_hours": round(reset / 3600, 1) if reset is not None else None,
+                              "keyed": bool(self.settings.openalex_api_key)}
+
+    def allowance_text(self) -> str | None:
+        """'OpenAlex allowance today: $0.076 of $0.10 left (76%) ...', or None before any response."""
+        a = self.allowance
+        if not a:
+            return None
+        share = a["remaining_usd"] / a["limit_usd"]
+        whose = "your API key" if a["keyed"] else "keyless, shared by everyone on your network"
+        reset = f"; resets in about {a['reset_hours']:g} h" if a.get("reset_hours") is not None else ""
+        low = " Running low: citation counts and /authors may fail until it resets." if share < 0.2 else ""
+        return (f"OpenAlex allowance today: ${a['remaining_usd']:.3f} of ${a['limit_usd']:.2f} left ({share:.0%}; "
+                f"{whose}{reset}).{low}")
 
     def _rate_limit_advice(self) -> str:
-        return ("Keyless OpenAlex access has a small daily allowance per IP address; popularity stays unknown until "
-                "it resets.")
+        reset = (self.allowance or {}).get("reset_hours")
+        when = f"; it resets in about {reset:g} h" if reset is not None else ""
+        if self.settings.openalex_api_key:
+            return f"Your OpenAlex key's daily allowance is spent{when}."
+        return ("Keyless OpenAlex access has a small daily allowance shared per IP address; popularity stays unknown "
+                "until it resets. A free key (OPENALEX_API_KEY in .env) gives you your own allowance.")
 
     def citation_counts(self, papers: list[Paper]) -> dict[str, CitationMatch]:
         """paper_id -> OpenAlex cited_by_count, for the papers OpenAlex knows. Unmatched papers are absent."""

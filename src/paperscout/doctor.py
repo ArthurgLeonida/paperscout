@@ -12,6 +12,7 @@ from paperscout.background import inspect_background
 from paperscout.config import S2_KEY_FORM, Settings, env_candidates
 from paperscout.arxiv.client import ArxivClient
 from paperscout.http import ApiError
+from paperscout.openalex.client import OpenAlexClient
 from paperscout.s2.client import SemanticScholarClient
 
 LIVE_PROBE_ID = "2308.04079"  # a stable, well-known arXiv paper used only as an access probe
@@ -77,6 +78,23 @@ def live_probe(settings: Settings, transport=None) -> dict[str, Any]:
     return result
 
 
+def openalex_probe(settings: Settings, transport=None) -> dict[str, Any]:
+    """One cheap OpenAlex request (a DOI lookup, no retries) to read today's allowance; the key is never shown."""
+    client = OpenAlexClient(replace(settings, openalex_max_requests=1), cache=None, transport=transport)
+    client.policy = replace(client.policy, max_retries=0)
+    result: dict[str, Any] = {"keyed": bool(settings.openalex_api_key)}
+    try:
+        client.request("GET", f"{settings.openalex_base}/works",
+                       params={"filter": f"doi:10.48550/arxiv.{LIVE_PROBE_ID}", "select": "id"}, source="probe")
+        result["ok"] = True
+    except ApiError as exc:
+        result.update(ok=False, error=str(exc))
+    finally:
+        client.close()
+    result["allowance"] = client.allowance_text()
+    return result
+
+
 def run_doctor(settings: Settings, live: bool = False, transport=None) -> dict[str, Any]:
     from pathlib import Path
 
@@ -95,6 +113,8 @@ def run_doctor(settings: Settings, live: bool = False, transport=None) -> dict[s
     }
     if live:
         report["live_probe"] = live_probe(settings, transport)
+        if settings.openalex:
+            report["openalex_probe"] = openalex_probe(settings, transport)
     return report
 
 
@@ -126,10 +146,18 @@ def render(report: dict[str, Any]) -> str:
                          f"Request a key at {key['how_to_get']} and put it in .env (see README).")
     lines.append(f"- Paper provider: {s['provider']}")
     if s["openalex"] == "on":
-        lines.append("- Citation counts: OpenAlex for papers without them (keyless; paper identifiers and titles "
-                     "only); turn off with PAPERSCOUT_OPENALEX=off")
+        lines.append("- OpenAlex: citation counts for papers without them (sends paper identifiers and a few titles) "
+                     "and /authors (sends the names and affiliation you give); turn off with PAPERSCOUT_OPENALEX=off")
     else:
         lines.append("- Citation counts: OpenAlex is off (PAPERSCOUT_OPENALEX=off), so popularity is unknown on arXiv")
+    if s["openalex"] == "on":
+        if s.get("openalex_api_key") == "set":
+            lines.append("- OPENALEX_API_KEY: configured; value not shown. OpenAlex requests use your own daily "
+                         "allowance")
+        else:
+            lines.append("- OPENALEX_API_KEY: not configured. OpenAlex requests share a small free daily allowance "
+                         "with everyone on your network; a free key (https://openalex.org/settings/api) gives you "
+                         "your own")
     lines.append(f"- Request policy: Semantic Scholar ≥{s['s2_min_interval']}s between requests, "
                  f"{s['s2_max_retries']} retries, at most {s['s2_max_requests']} attempts per command; "
                  f"arXiv ≥{s['arxiv_min_interval']}s between requests, at most {s['arxiv_max_requests']} per command")
@@ -143,6 +171,13 @@ def render(report: dict[str, Any]) -> str:
                          f"Retry-After: {r.get('retry_after') or 'absent'}; request id: {r.get('request_id') or 'n/a'}")
         if not probe["ok"]:
             lines.append(f"  - {probe['error']}")
+    oa = report.get("openalex_probe")
+    if oa:
+        lines.append(f"- Live probe to OpenAlex (one DOI lookup, no retries): {'OK' if oa['ok'] else 'FAILED'}")
+        if oa.get("allowance"):
+            lines.append(f"  - {oa['allowance']}")
+        if not oa["ok"]:
+            lines.append(f"  - {oa['error']}")
     return "\n".join(lines)
 
 

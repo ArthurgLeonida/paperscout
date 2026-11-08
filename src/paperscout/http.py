@@ -115,13 +115,26 @@ class ApiClient:
     def _rate_limit_advice(self) -> str:
         return "Wait and try again later."
 
+    def _secret_params(self) -> dict[str, str]:
+        """Credentials sent as query parameters: added at send time only, never cached, logged or shown."""
+        return {}
+
+    def _observe(self, response: httpx.Response) -> None:
+        """Called with every HTTP response (for example to read allowance headers)."""
+
+    def _redact(self, text: str) -> str:
+        for value in self._secret_params().values():
+            if value:
+                text = text.replace(value, "***")
+        return text
+
     def _error_message(self, response: httpx.Response) -> str:
         try:
             payload = response.json()
             detail = payload.get("error") or payload.get("message") or str(payload)
         except (ValueError, AttributeError):
             detail = response.text[:200]
-        return f"{self.policy.provider} HTTP {response.status_code}: {detail}"
+        return self._redact(f"{self.policy.provider} HTTP {response.status_code}: {detail}")
 
     # ------------------------------------------------------------------ core
     def _pace(self) -> None:
@@ -182,7 +195,8 @@ class ApiClient:
             self.network_calls += 1
             made += 1
             try:
-                response = self._http.request(method, url, params=params, json=body)
+                # Secret parameters are added here only, so they never reach the cache key or the stored URL.
+                response = self._http.request(method, url, params={**params, **self._secret_params()}, json=body)
             except httpx.TransportError as exc:
                 last_error = ApiError(f"network error contacting {provider}: {type(exc).__name__}")
                 self.diagnostics.append({"method": method, "endpoint": endpoint, "status": None,
@@ -196,6 +210,7 @@ class ApiClient:
                 continue
 
             status = response.status_code
+            self._observe(response)
             self.diagnostics.append({
                 "method": method,
                 "endpoint": endpoint,

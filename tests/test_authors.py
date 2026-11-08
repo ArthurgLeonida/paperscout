@@ -95,7 +95,8 @@ class FakeOpenAlex:
             results = [w for w in results if filters["from_publication_date"] <= w["publication_date"]
                        <= filters["to_publication_date"]]
             return httpx.Response(200, json={"meta": {"count": len(results), "next_cursor": None},
-                                             "results": results})
+                                             "results": results},
+                                  headers={"X-RateLimit-Remaining-USD": "0.09", "X-RateLimit-Limit-USD": "0.1"})
         return httpx.Response(404, json={"error": "unhandled"})
 
 
@@ -166,6 +167,7 @@ def test_papers_by_name_and_affiliation_are_matched_on_each_paper(asvc, fake_oa)
     assert "Text-Guided Gaussian Scene Editing" in rows[0] and "by Alex Kim" in rows[0]
     assert "Researcher names and affiliations were sent to OpenAlex" in out
     assert "papers by Alex Kim at Synthetic Institute of Technology" in out
+    assert "OpenAlex allowance today: $0.090 of $0.10 left (90%; keyless, shared by everyone on your network)" in out
     assert asvc.store.get_paper("arxiv:2609.11111").citation_count == 6  # the published version's count
     assert all(c.method == "GET" and "mailto" not in str(c.url) and "email" not in str(c.url) for c in fake_oa.calls)
     assert asvc.store.get_paper("arxiv:2609.11111").citation_source == "openalex-works"
